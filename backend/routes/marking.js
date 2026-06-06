@@ -195,17 +195,44 @@ function computeEligible(pm, indexes) {
   //   (b) BGG dedup per party (skip_bgg=ON → 1 placement per broker+garden+grade)
   // Include up to limit×10 lots so all parties have enough eligible lots.
   const f1Ids = new Set();
+  const brokerLots = pm.grade_broker_lots || {};
   for (const [rawGrade, maxLots] of Object.entries(gradeSamples)) {
     const limit = parseInt(maxLots) || 0;
     if (!limit) continue;
     const gk = norm(rawGrade).toLowerCase();
     const gradeLots = byGrade.get(gk) || [];
-    let count = 0;
-    for (const lot of gradeLots) {
-      if (!passesF1(lot, rawGrade)) continue;
-      f1Ids.add(lot.catalogue_id);
-      count++;
-      if (count >= limit * 10) break; // generous cap — frontend applies exact limit
+
+    // Per-broker limits for this grade (keys normalised uppercase by mapping.js)
+    const gBrokers = brokerLots[norm(rawGrade)] || brokerLots[rawGrade] || {};
+    const hasGradeBrokerLimits = gBrokers && Object.keys(gBrokers).length > 0;
+
+    if (hasGradeBrokerLimits) {
+      // Each listed broker gets its OWN eligibility quota (limit×10) so that
+      // brokers later in the list (PTM) aren't crowded out of the eligible set
+      // by earlier brokers (JT) consuming a shared pool. Only listed brokers
+      // are eligible; unlisted brokers are excluded from Filter 1 for this grade.
+      const perBrokerCount = {}; // brokerKey(lowercase) → count added
+      const brokerCap = {};      // brokerKey(lowercase) → limit×10 headroom
+      for (const [bk, bl] of Object.entries(gBrokers)) {
+        brokerCap[bk.toLowerCase()] = (parseInt(bl) || 0) * 10;
+      }
+      for (const lot of gradeLots) {
+        const bkey = (lot.broker || '').toLowerCase();
+        if (!(bkey in brokerCap)) continue;               // broker not listed → skip
+        if ((perBrokerCount[bkey] || 0) >= brokerCap[bkey]) continue;
+        if (!passesF1(lot, rawGrade)) continue;
+        f1Ids.add(lot.catalogue_id);
+        perBrokerCount[bkey] = (perBrokerCount[bkey] || 0) + 1;
+      }
+    } else {
+      // No broker limits → original shared-pool behaviour, unchanged.
+      let count = 0;
+      for (const lot of gradeLots) {
+        if (!passesF1(lot, rawGrade)) continue;
+        f1Ids.add(lot.catalogue_id);
+        count++;
+        if (count >= limit * 10) break; // generous cap — frontend applies exact limit
+      }
     }
   }
 
@@ -260,7 +287,8 @@ router.post('/preview', async (req, res) => {
       `SELECT p.id, p.party_name, p.party_code, p.party_type,
          p.grade_samples, p.grade_ranges, p.grade_bags, p.grade_nwt,
          p.broker_list, p.skip_blank_lsp, p.skip_dup_broker_garden_grade,
-         p.grade_garden_mapping, p.one_lot_per_grade_garden
+         p.grade_garden_mapping, p.one_lot_per_grade_garden,
+         p.grade_broker_lots
        FROM parties p
        WHERE p.id=ANY($1)
        ORDER BY p.party_type NULLS LAST, p.party_code`,
@@ -312,10 +340,22 @@ router.post('/preview', async (req, res) => {
     });
 
     const parties = sortedPms.map((pm, i) => {
-      // Sum total max_lots across all grades for this party
-      // This is the maximum number of lot-placements allowed for this party
+      // Sum total max_lots across all grades for this party.
+      // When a grade has per-broker limits set, that grade's effective cap is
+      // the SUM of its broker limits (broker sum drives max_lots). Otherwise
+      // the grade's own max_lots (grade_samples) is used.
       const gradeSamples = pm.grade_samples || {};
-      const totalMaxLots = Object.values(gradeSamples).reduce((sum, v) => sum + (parseInt(v) || 0), 0);
+      const brokerLots   = pm.grade_broker_lots || {};
+      const allGradeKeys = new Set([
+        ...Object.keys(gradeSamples),
+        ...Object.keys(brokerLots)
+      ]);
+      let totalMaxLots = 0;
+      for (const g of allGradeKeys) {
+        const brk = brokerLots[g] || {};
+        const brokerSum = Object.values(brk).reduce((s, v) => s + (parseInt(v) || 0), 0);
+        totalMaxLots += brokerSum > 0 ? brokerSum : (parseInt(gradeSamples[g]) || 0);
+      }
       return {
         key: `P${i+1}`,
         party_id: pm.id,
@@ -324,6 +364,7 @@ router.post('/preview', async (req, res) => {
         party_type: pm.party_type || 'C',
         skip_bgg: pm.skip_dup_broker_garden_grade || false,
         max_lots: totalMaxLots,   // cap on total placements across all grades
+        grade_broker_lots: brokerLots,  // per-grade per-broker caps for markF1
         total_eligible: (eligibleMap.get(pm.id)?.f1Ids.size || 0) + (eligibleMap.get(pm.id)?.f2Ids.size || 0)
       };
     });

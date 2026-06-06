@@ -132,4 +132,4 @@ CREATE INDEX IF NOT EXISTS idx_sold_list_batch  ON sold_list(sale_no, batch_name
 CREATE INDEX IF NOT EXISTS idx_markings_batch   ON markings(sale_no, batch_name);
 
 SELECT 'Unique constraint fix complete — batches are now independent' AS status;
-
+ALTER TABLE parties ADD COLUMN IF NOT EXISTS grade_broker_lots jsonb DEFAULT '{}'::jsonb; ##added 06/06/2024

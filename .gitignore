@@ -6,3 +6,4 @@ backend/.env
 .env
 *:Zone.Identifier
 *:sec.endpointdlp
+build/

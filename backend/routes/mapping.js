@@ -45,6 +45,24 @@ function normGradeGardenMapping(obj) {
   return out;
 }
 
+// Normalise grade_broker_lots: keys = grades, values = { broker: maxLots }
+// Both grade keys and broker keys are uppercased to match catalogue values.
+function normGradeBrokerLots(obj) {
+  if (!obj || typeof obj !== 'object') return {};
+  const out = {};
+  for (const [grade, brokers] of Object.entries(obj)) {
+    if (!brokers || typeof brokers !== 'object') continue;
+    const inner = {};
+    for (const [broker, n] of Object.entries(brokers)) {
+      const nb = norm(broker);
+      const num = parseInt(n, 10);
+      if (nb && num > 0) inner[nb] = num;
+    }
+    if (Object.keys(inner).length) out[norm(grade)] = inner;
+  }
+  return out;
+}
+
 // Normalise a broker list array
 function normBrokerList(arr) {
   if (!Array.isArray(arr)) return [];
@@ -59,6 +77,7 @@ async function ensureColumns() {
       ADD COLUMN IF NOT EXISTS grade_bags     JSONB DEFAULT '{}',
       ADD COLUMN IF NOT EXISTS grade_nwt      JSONB DEFAULT '{}',
       ADD COLUMN IF NOT EXISTS grade_garden_mapping JSONB DEFAULT '{}',
+      ADD COLUMN IF NOT EXISTS grade_broker_lots JSONB DEFAULT '{}',
       ADD COLUMN IF NOT EXISTS broker_list    TEXT[] DEFAULT '{}',
       ADD COLUMN IF NOT EXISTS skip_blank_lsp BOOLEAN DEFAULT TRUE,
       ADD COLUMN IF NOT EXISTS skip_dup_broker_garden_grade BOOLEAN DEFAULT TRUE,
@@ -129,6 +148,7 @@ router.post('/', async (req, res) => {
     grade_bags,
     grade_nwt,
     grade_garden_mapping,
+    grade_broker_lots,
     broker_list,
     skip_blank_lsp,
     skip_dup_broker_garden_grade,
@@ -146,6 +166,7 @@ router.post('/', async (req, res) => {
   const normBags      = normGradeKeys(grade_bags       || {});
   const normNwt       = normGradeKeys(grade_nwt        || {});
   const normMapping   = normGradeGardenMapping(grade_garden_mapping || {});
+  const normBrokerLots = normGradeBrokerLots(grade_broker_lots || {});
   const normBrokers   = normBrokerList(broker_list     || []);
 
   const client = await pool.connect();
@@ -158,18 +179,20 @@ router.post('/', async (req, res) => {
         grade_bags=$3,
         grade_nwt=$4,
         grade_garden_mapping=$5,
-        broker_list=$6,
-        skip_blank_lsp=$7,
-        skip_dup_broker_garden_grade=$8,
-        one_lot_per_grade_garden=$9,
-        party_type=$10
-       WHERE id=$11`,
+        grade_broker_lots=$6,
+        broker_list=$7,
+        skip_blank_lsp=$8,
+        skip_dup_broker_garden_grade=$9,
+        one_lot_per_grade_garden=$10,
+        party_type=$11
+       WHERE id=$12`,
       [
         JSON.stringify(normSamples),
         JSON.stringify(normRanges),
         JSON.stringify(normBags),
         JSON.stringify(normNwt),
         JSON.stringify(normMapping),
+        JSON.stringify(normBrokerLots),
         normBrokers,
         skip_blank_lsp !== false,
         skip_dup_broker_garden_grade || false,

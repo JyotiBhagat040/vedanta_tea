@@ -129,7 +129,7 @@ export default function App() {
       <div style={{ background: '#1a3c5e', padding: '0 24px', display: 'flex', alignItems: 'center', height: 52, boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
         <div style={{ fontSize: 18, marginRight: 10 }}>🍵</div>
         <div style={{ color: '#fff', fontWeight: 800, fontSize: 16, flex: 1, letterSpacing: 0.3 }}>
-          Vedanta Tea Auction Tool
+          Tea Sampling Tool
         </div>
         {/* User info + logout */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>

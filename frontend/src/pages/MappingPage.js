@@ -36,6 +36,8 @@ export default function MappingPage() {
   const [skipBlankLsp,   setSkipBlankLsp]   = useState(true); // CHANGED: Default true
   const [skipDupBGG,     setSkipDupBGG]     = useState(true);
   const [gradeSettings,  setGradeSettings]  = useState({});
+  const [gradeBrokerLots, setGradeBrokerLots] = useState({}); // { grade: { broker: maxLots } }
+  const [expandedBrokerGrade, setExpandedBrokerGrade] = useState(null); // which grade's broker panel is open
   const [partyType,      setPartyType]      = useState('B');
   const [oneLotPerGradeGarden, setOneLotPerGradeGarden] = useState(false);
 
@@ -45,6 +47,14 @@ export default function MappingPage() {
   const setGradeSetting = (grade, field, val) => setGradeSettings(prev => ({
     ...prev, [grade]: { ...(prev[grade]||{}), [field]: val===''?(field==='date_before'?'':0):(field==='date_before'?val:parseFloat(val)||0) }
   }));
+
+  const setBrokerLot = (grade, broker, val) => setGradeBrokerLots(prev => {
+    const g = { ...(prev[grade] || {}) };
+    const n = parseInt(val, 10);
+    if (!val || isNaN(n) || n <= 0) delete g[broker];
+    else g[broker] = n;
+    return { ...prev, [grade]: g };
+  });
 
   const copyToAllGradesBelow = (fromGrade) => {
     const fromSettings = gradeSettings[fromGrade];
@@ -128,11 +138,13 @@ export default function MappingPage() {
         };
       });
       setGradeSettings(gs);
+      setGradeBrokerLots(pm.grade_broker_lots || {});
       setGradeGardenMap(gradeGardenMapping);
       setSelectedGradesForGarden([]);
     } catch (e) {
       setBrokerList([]); setSkipBlankLsp(true); setSkipDupBGG(false); 
       setSelectedGrades([]); setGradeSettings({}); setPartyType('B');
+      setGradeBrokerLots({});
       setGradeGardenMap({}); setOneLotPerGradeGarden(false);
       setSelectedGradesForGarden([]);
     }
@@ -141,6 +153,10 @@ export default function MappingPage() {
   const toggleGrade = (grade) => {
     const removing = selectedGrades.includes(grade);
     setSelectedGrades(removing ? selectedGrades.filter(g=>g!==grade) : [...selectedGrades, grade]);
+    if (removing) {
+      setGradeBrokerLots(prev => { const u = { ...prev }; delete u[grade]; return u; });
+      if (expandedBrokerGrade === grade) setExpandedBrokerGrade(null);
+    }
     if (!removing && !gradeSettings[grade])
       setGradeSettings(prev => ({ 
         ...prev, 
@@ -206,7 +222,7 @@ export default function MappingPage() {
     const gradeSamples = {}, gradeRanges = {}, gradeBags = {}, gradeNwt = {};
     selectedGrades.forEach(g => {
       const s = gradeSettings[g] || {};
-      gradeSamples[g] = s.max_lots || 0;
+      gradeSamples[g] = effectiveMaxLots(g);
       gradeRanges[g] = { min: s.rate_min||0, max: s.rate_max||0, date_before: s.date_before||'' };
       gradeBags[g] = { to: s.bags_to||0, from: s.bags_from||0 };      // FIXED: TO/FROM order
       gradeNwt[g] = { to: s.nwt_to||0, from: s.nwt_from||0 };        // FIXED: TO/FROM order
@@ -220,6 +236,7 @@ export default function MappingPage() {
         grade_bags: gradeBags,
         grade_nwt: gradeNwt,
         grade_garden_mapping: gradeGardenMap,
+        grade_broker_lots: gradeBrokerLots,
         broker_list: brokerList,
         skip_blank_lsp: skipBlankLsp,
         skip_dup_broker_garden_grade: skipDupBGG,
@@ -310,8 +327,18 @@ export default function MappingPage() {
     }
   };
 
-  const totalSlots = selectedGrades.reduce((sum, g) => 
-    sum + (gradeSettings[g]?.max_lots || 0), 0
+  // Sum of per-broker limits set for a grade (0 if none set)
+  const brokerSumFor = (g) => Object.values(gradeBrokerLots[g] || {})
+    .reduce((s, v) => s + (parseInt(v, 10) || 0), 0);
+  // Effective Max Lots for a grade: broker sum when any broker limit is set,
+  // otherwise the manually-typed max_lots.
+  const effectiveMaxLots = (g) => {
+    const bs = brokerSumFor(g);
+    return bs > 0 ? bs : (gradeSettings[g]?.max_lots || 0);
+  };
+
+  const totalSlots = selectedGrades.reduce((sum, g) =>
+    sum + effectiveMaxLots(g), 0
   );
 
   const filteredParties = parties
@@ -656,11 +683,23 @@ export default function MappingPage() {
                       <tbody>
                         {selectedGrades.map((g, i) => {
                           const s = gradeSettings[g] || {};
+                          const bSum = brokerSumFor(g);
+                          const brokerDriven = bSum > 0;
                           return (
-                            <tr key={g} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                            <React.Fragment key={g}>
+                            <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
                               <td style={{ padding: '7px 12px', fontWeight: 600, color: '#1f2937' }}>{g}</td>
                               <td style={{ padding: '7px 12px', textAlign: 'center' }}>
-                                <NumCell value={s.max_lots} onChange={v => setGradeSetting(g, 'max_lots', v)} placeholder="0" />
+                                {brokerDriven ? (
+                                  <div title="Auto-set to the sum of per-broker limits below. Clear broker limits to edit manually."
+                                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, width: 72, justifyContent: 'center',
+                                      padding: '5px 8px', border: '1.5px solid #2563eb', borderRadius: 6,
+                                      fontSize: 12, fontWeight: 700, color: '#1e40af', background: '#eff6ff' }}>
+                                    🔒 {bSum}
+                                  </div>
+                                ) : (
+                                  <NumCell value={s.max_lots} onChange={v => setGradeSetting(g, 'max_lots', v)} placeholder="0" />
+                                )}
                               </td>
                               <td style={{ padding: '7px 12px', textAlign: 'center' }}>
                                 <NumCell value={s.rate_min} onChange={v => setGradeSetting(g, 'rate_min', v)} placeholder="0" />
@@ -695,25 +734,77 @@ export default function MappingPage() {
                                 <NumCell value={s.nwt_to} onChange={v => setGradeSetting(g, 'nwt_to', v)} placeholder="0" />
                               </td>
                               <td style={{ padding: '7px 12px', textAlign: 'center' }}>
-                                {i < selectedGrades.length - 1 && (
-                                  <button
-                                    onClick={() => copyToAllGradesBelow(g)}
-                                    title="Copy this row's settings to all grades below"
-                                    style={{
-                                      padding: '4px 8px',
-                                      fontSize: 11,
-                                      background: '#f0f4f8',
-                                      border: '1px solid #cbd5e0',
-                                      borderRadius: 4,
-                                      cursor: 'pointer',
-                                      color: '#555',
-                                      fontWeight: 600
-                                    }}>
-                                    ⬇ Copy Below
-                                  </button>
-                                )}
+                                <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
+                                  {(() => {
+                                    const brokerCount = Object.keys(gradeBrokerLots[g] || {}).length;
+                                    const open = expandedBrokerGrade === g;
+                                    return (
+                                      <button
+                                        onClick={() => setExpandedBrokerGrade(open ? null : g)}
+                                        title="Set per-broker lot limits for this grade (Filter 1)"
+                                        style={{
+                                          padding: '4px 8px', fontSize: 11,
+                                          background: brokerCount > 0 ? '#dbeafe' : '#f0f4f8',
+                                          border: `1px solid ${brokerCount > 0 ? '#2563eb' : '#cbd5e0'}`,
+                                          borderRadius: 4, cursor: 'pointer',
+                                          color: brokerCount > 0 ? '#1e40af' : '#555', fontWeight: 600
+                                        }}>
+                                        {open ? '▲ Brokers' : `▾ Brokers${brokerCount > 0 ? ` (${brokerCount})` : ''}`}
+                                      </button>
+                                    );
+                                  })()}
+                                  {i < selectedGrades.length - 1 && (
+                                    <button
+                                      onClick={() => copyToAllGradesBelow(g)}
+                                      title="Copy this row's settings to all grades below"
+                                      style={{
+                                        padding: '4px 8px', fontSize: 11, background: '#f0f4f8',
+                                        border: '1px solid #cbd5e0', borderRadius: 4,
+                                        cursor: 'pointer', color: '#555', fontWeight: 600
+                                      }}>
+                                      ⬇ Copy Below
+                                    </button>
+                                  )}
+                                </div>
                               </td>
                             </tr>
+                            {expandedBrokerGrade === g && (
+                              <tr style={{ background: '#f8fbff' }}>
+                                <td colSpan={10} style={{ padding: '10px 16px', borderBottom: '1px solid #e2e8f0' }}>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: '#1e40af', marginBottom: 4 }}>
+                                    Per-broker lot limit for {g} (Filter 1)
+                                  </div>
+                                  <div style={{ fontSize: 11, color: '#64748b', marginBottom: 10 }}>
+                                    Set how many lots each broker may contribute for this grade. Blank or 0 = no broker-specific limit (only the grade Max Lots = {gradeSettings[g]?.max_lots || 0} applies). The grade total still caps the overall count.
+                                  </div>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                                    {allBrokers.length === 0 ? (
+                                      <div style={{ fontSize: 12, color: '#aaa' }}>No brokers available. Import a catalogue first.</div>
+                                    ) : allBrokers.map(b => (
+                                      <div key={b} style={{
+                                        display: 'flex', alignItems: 'center', gap: 6,
+                                        padding: '4px 8px', background: '#fff',
+                                        border: '1.5px solid #e2e8f0', borderRadius: 6
+                                      }}>
+                                        <span style={{ fontSize: 12, color: '#374151' }}>{b}</span>
+                                        <NumCell
+                                          width={56}
+                                          value={(gradeBrokerLots[g] || {})[b]}
+                                          onChange={v => setBrokerLot(g, b, v)}
+                                          placeholder="—"
+                                        />
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {Object.keys(gradeBrokerLots[g] || {}).length > 0 && (
+                                    <div style={{ fontSize: 11, color: '#1e40af', marginTop: 8 }}>
+                                      Limits set: {Object.entries(gradeBrokerLots[g]).map(([br, n]) => `${br}=${n}`).join(', ')}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                            </React.Fragment>
                           );
                         })}
                       </tbody>

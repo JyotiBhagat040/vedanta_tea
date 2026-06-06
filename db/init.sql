@@ -236,6 +236,7 @@ CREATE TABLE public.parties (
     party_type character varying(1) DEFAULT 'B'::character varying,
     grade_garden_mapping jsonb DEFAULT '{}'::jsonb,
     one_lot_per_grade_garden boolean DEFAULT false,
+    grade_broker_lots jsonb DEFAULT '{}'::jsonb,
     CONSTRAINT parties_party_type_check CHECK (((party_type)::text = ANY ((ARRAY['A'::character varying, 'B'::character varying, 'C'::character varying])::text[])))
 );
 
@@ -578,4 +579,9 @@ ALTER TABLE ONLY public.party_garden_mapping
 --
 
 \unrestrict VHn8xLh4d0ZgHNcXXpW2g8PEzP5mN7eRAR0v1x9lfgrFnVLeXa0IKihL9VGnP6N
+
+--
+-- Incremental migrations (idempotent — safe to re-run)
+--
+ALTER TABLE public.parties ADD COLUMN IF NOT EXISTS grade_broker_lots jsonb DEFAULT '{}'::jsonb;
 
