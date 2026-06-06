@@ -12,9 +12,6 @@ const PORT = process.env.PORT || 5000;
 const uploadDir = process.env.UPLOAD_DIR || './uploads';
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
-const { verifyLicense } = require('./licenseCheck');
-        verifyLicense();   // exits if the license is invalid for this machine
-
 // Middleware
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '50mb' }));                    // ← was 10mb, increased for large payloads
