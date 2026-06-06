@@ -34,10 +34,8 @@ services:
       DB_PASSWORD: teapass123
       NODE_ENV:    production
       JWT_SECRET:  vedanta-tea-secret-2025
-      HOST_ID: ${HOST_ID}
     volumes:
       - tea_uploads:/app/uploads
-      - ./license:/license:ro
 
   frontend:
     image: tea-auction-frontend:latest
