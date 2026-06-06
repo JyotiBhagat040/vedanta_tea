@@ -1,0 +1,9 @@
+node_modules/
+uploads/
+*.tar.gz
+*.sql
+backend/.env
+.env
+*:Zone.Identifier
+*:sec.endpointdlp
+build
