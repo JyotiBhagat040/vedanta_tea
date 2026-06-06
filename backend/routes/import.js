@@ -102,6 +102,7 @@ async function ensureColumns() {
   await pool.query(`ALTER TABLE import_log ADD COLUMN IF NOT EXISTS file_label TEXT DEFAULT ''`).catch(() => {});
   await pool.query(`ALTER TABLE import_log ADD COLUMN IF NOT EXISTS import_group TEXT DEFAULT ''`).catch(() => {});
   await pool.query(`ALTER TABLE import_log ADD COLUMN IF NOT EXISTS batch_name TEXT DEFAULT ''`).catch(() => {});
+  await pool.query(`ALTER TABLE import_log ADD COLUMN IF NOT EXISTS sold_list_sale_no TEXT DEFAULT NULL`).catch(() => {});
   await pool.query(`ALTER TABLE markings DROP CONSTRAINT IF EXISTS markings_catalogue_id_fkey`).catch(() => {});
 }
 ensureColumns();
@@ -158,8 +159,8 @@ router.post('/catalogue', upload.single('file'), async (req, res) => {
       }
     }
     await pool.query(
-      `INSERT INTO import_log (file_type,filename,file_label,import_group,batch_name,rows_imported,rows_skipped,sale_no) VALUES ('catalogue',$1,$2,$3,$4,$5,$6,$7)`,
-      [req.file.originalname, file_label, import_group, batch_name, imported, skipped, saleNoFound]
+      `INSERT INTO import_log (file_type,filename,file_label,import_group,batch_name,rows_imported,rows_skipped,sale_no,sold_list_sale_no) VALUES ('catalogue',$1,$2,$3,$4,$5,$6,$7,$8)`,
+      [req.file.originalname, file_label, import_group, batch_name, imported, skipped, saleNoFound, sold_list_sale_no]
     );
     res.json({ success: true, imported, skipped, errors, sale_no: saleNoFound, file_label, batch_name });
   } catch (err) {
@@ -221,31 +222,48 @@ router.post('/sold-list', upload.single('file'), async (req, res) => {
 router.get('/logs', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT *, COALESCE(file_label, '') as file_label, COALESCE(import_group, '') as import_group, COALESCE(batch_name, '') as batch_name
-       FROM import_log ORDER BY imported_at DESC LIMIT 50`
+      `SELECT il.*,
+              COALESCE(il.file_label, '') as file_label,
+              COALESCE(il.import_group, '') as import_group,
+              COALESCE(il.batch_name, '') as batch_name,
+              COALESCE(
+                NULLIF(il.sold_list_sale_no, ''),
+                (SELECT c.sold_list_sale_no FROM catalogue c
+                  WHERE il.file_type = 'catalogue'
+                    AND c.sale_no = il.sale_no
+                    AND COALESCE(c.batch_name,'') = COALESCE(il.batch_name,'')
+                    AND c.sold_list_sale_no IS NOT NULL
+                  LIMIT 1),
+                ''
+              ) AS sold_list_sale_no
+         FROM import_log il
+        ORDER BY il.imported_at DESC LIMIT 50`
     );
     res.json(rows);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── GET /api/import/sale-numbers ──────────────────────────────────────────────
-// Returns catalogue lot_count + sold_list sold_count per sale
+// Returns catalogue lot_count + sold_list sold_count per sale.
+// JOINs sold_list using catalogue.sold_list_sale_no (the sold list the catalogue
+// was mapped to during upload), falling back to catalogue.sale_no when not set.
 router.get('/sale-numbers', async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT 
         c.sale_no,
         COALESCE(c.batch_name, '') as batch_name,
+        COALESCE(c.sold_list_sale_no, '') as sold_list_sale_no,
         MIN(c.week_date) as week_date,
         COUNT(DISTINCT c.invoice_no) as lot_count,
         COALESCE(s.sold_count, 0) as sold_count
       FROM catalogue c
       LEFT JOIN (
-        SELECT sale_no, COALESCE(batch_name,'') as batch_name, COUNT(*) as sold_count
-        FROM sold_list GROUP BY sale_no, batch_name
-      ) s ON s.sale_no = c.sale_no AND s.batch_name = COALESCE(c.batch_name,'')
+        SELECT sale_no, COUNT(*) as sold_count
+        FROM sold_list GROUP BY sale_no
+      ) s ON s.sale_no = COALESCE(NULLIF(c.sold_list_sale_no, ''), c.sale_no)
       WHERE c.sale_no IS NOT NULL
-      GROUP BY c.sale_no, c.batch_name, s.sold_count
+      GROUP BY c.sale_no, c.batch_name, c.sold_list_sale_no, s.sold_count
       ORDER BY c.sale_no DESC, c.batch_name
       LIMIT 50
     `);

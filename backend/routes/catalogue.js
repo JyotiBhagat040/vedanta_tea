@@ -24,10 +24,12 @@ router.get('/merged', async (req, res) => {
         (SELECT MIN(s2.deal_price) FROM sold_list s2
          WHERE LOWER(s2.grade) = LOWER(c.grade)
            AND s2.deal_price IS NOT NULL
+           AND s2.sale_no = c.sold_list_sale_no
            AND (LOWER(s2.mark) = LOWER(c.mark) OR LOWER(s2.garden) = LOWER(c.mark))) AS min_deal_price,
         (SELECT MAX(s2.deal_price) FROM sold_list s2
          WHERE LOWER(s2.grade) = LOWER(c.grade)
            AND s2.deal_price IS NOT NULL
+           AND s2.sale_no = c.sold_list_sale_no
            AND (LOWER(s2.mark) = LOWER(c.mark) OR LOWER(s2.garden) = LOWER(c.mark))) AS max_deal_price
       FROM catalogue c
       WHERE c.sale_no=$1${batchWhere}

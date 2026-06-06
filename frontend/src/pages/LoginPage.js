@@ -71,7 +71,7 @@ export default function LoginPage({ onLogin }) {
           color: '#fff', fontSize: 28, fontWeight: 800,
           margin: 0, letterSpacing: 0.5, lineHeight: 1.2
         }}>
-          Vedanta Tea Auction Tool
+          Tea Sampling Tool
         </h1>
         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginTop: 8 }}>
           Developed by Jyoti Bhagat
@@ -210,7 +210,7 @@ export default function LoginPage({ onLogin }) {
 
       {/* Footer */}
       <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11, marginTop: 24, zIndex: 1 }}>
-        Vedanta Tea Auction Tool &copy; {new Date().getFullYear()}
+        Tea Sampling Tool &copy; {new Date().getFullYear()}
       </p>
     </div>
   );

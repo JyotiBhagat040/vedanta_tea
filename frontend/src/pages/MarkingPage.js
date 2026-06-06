@@ -89,7 +89,7 @@ const ColFilter = ({ label, options, selected, onChange }) => {
   );
 };
 
-const SlotCell = ({ catalogueId, slotIdx, value, onChange, allParties, visibleLots, rowIdx }) => {
+const SlotCell = React.memo(({ catalogueId, slotIdx, value, onChange, allParties, visibleLots, rowIdx }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [sugg, setSugg] = useState([]);
@@ -168,7 +168,60 @@ const SlotCell = ({ catalogueId, slotIdx, value, onChange, allParties, visibleLo
              : <span style={{ color: slotIdx >= AUTO_SLOTS ? '#c4b5fd' : '#d1d5db', fontSize: 9 }}>—</span>}
     </div>
   );
+});
+
+const TD_BASE = { padding: '4px 6px', fontSize: 12, color: '#374151', fontWeight: 500 };
+const tdStyle = (extra = {}) => ({ ...TD_BASE, ...extra });
+
+const fmtDateUtil = d => { try { const dt = new Date(d); return `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}`; } catch { return '—'; } };
+const fmtRateUtil = row => {
+  const mn = row.min_deal_price, mx = row.max_deal_price;
+  if (!mn && !mx) return '—';
+  if (mn && mx && Math.abs(parseFloat(mn) - parseFloat(mx)) > 0.5) return `${Number(mn).toFixed(0)}-${Number(mx).toFixed(0)}`;
+  return `${Number(mn || mx).toFixed(0)}/-`;
 };
+
+const LotRow = React.memo(({ row, rowIdx, slots, dupAlert, onSlotChange, allParties, visibleLots, onDismissDup, onDeleteLot }) => {
+  const hasSlot = slots.some(s => s?.party_id);
+  return (
+    <React.Fragment>
+      <tr style={{ borderBottom: dupAlert ? 'none' : '1px solid #f0f4f8', background: hasSlot ? (rowIdx%2===0?'#f0fdf4':'#e8faf0') : (rowIdx%2===0?'#fff':'#fafbfc') }}>
+        <td style={tdStyle({ textAlign: 'center', color: '#9ca3af', fontWeight: 500 })}>{row.sale_no}</td>
+        {slots.map((slot, si) => (
+          <td key={si} style={{ padding: '3px 2px', textAlign: 'center' }}>
+            <SlotCell catalogueId={row.catalogue_id} slotIdx={si} value={slot} onChange={v => onSlotChange(row.catalogue_id, si, v)} allParties={allParties} visibleLots={visibleLots} rowIdx={rowIdx} />
+          </td>
+        ))}
+        <td style={tdStyle({ fontWeight: 600 })}>{row.broker}</td>
+        <td style={tdStyle({ fontFamily: 'monospace', color: '#1a3c5e', fontWeight: 700 })}>{row.lot_no}</td>
+        <td style={{ ...tdStyle({ fontWeight: 700, color: '#1a3c5e' }), maxWidth: 105, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.garden}>{row.garden}</td>
+        <td style={tdStyle()}><span style={{ background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{row.grade}</span></td>
+        <td style={tdStyle({ textAlign: 'right', fontWeight: 700, color: '#1a3c5e', fontSize: 12 })}>{fmtRateUtil(row)}</td>
+        <td style={{ ...tdStyle({ color: '#6b7280', fontSize: 11 }), maxWidth: 85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.origin}>{row.origin || '—'}</td>
+        <td style={tdStyle({ textAlign: 'right', fontWeight: 700 })}>{row.bags || '—'}</td>
+        <td style={tdStyle({ textAlign: 'right', fontWeight: 700 })}>{row.net_wt || '—'}</td>
+        <td style={tdStyle({ textAlign: 'center', color: '#374151', fontWeight: 600 })}>{fmtDateUtil(row.gp_date)}</td>
+        <td style={tdStyle({ color: '#374151', fontFamily: 'monospace', fontSize: 12, fontWeight: 600 })}>{row.invoice || '—'}</td>
+        <td style={{ padding: '3px 4px', textAlign: 'center', width: 28 }}>
+          {hasSlot && (
+            <button
+              title="Delete all markings for this lot"
+              onClick={() => onDeleteLot(row)}
+              style={{ padding: '2px 5px', background: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: 4, cursor: 'pointer', fontSize: 12, lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+              🗑️
+            </button>
+          )}
+        </td>
+      </tr>
+      {dupAlert && (
+        <tr><td colSpan={16} style={{ padding: '3px 12px', background: '#fffbeb', borderBottom: '1px solid #f0f4f8', fontSize: 11, color: '#92400e', fontWeight: 600 }}>
+          {dupAlert}
+          <button onClick={() => onDismissDup(row.catalogue_id)} style={{ marginLeft: 8, border: 'none', background: 'none', cursor: 'pointer', fontSize: 10, color: '#888' }}>x</button>
+        </td></tr>
+      )}
+    </React.Fragment>
+  );
+});
 
 export default function MarkingPage() {
   const [allParties, setAllParties] = useState([]);
@@ -238,6 +291,7 @@ export default function MarkingPage() {
         if (initSlots[cid]) parties.forEach((p, i) => { if (i < MAX_SLOTS) initSlots[cid][i] = p; });
       });
       setLotSlots(initSlots);
+      lotSlotsRef.current = initSlots;
     } catch (e) { setAlert({ msg: e.response?.data?.error || e.message, type: 'error' }); }
     finally { setLoading(false); }
   }, []);
@@ -274,10 +328,12 @@ export default function MarkingPage() {
 
       const partySkipBgg  = new Map();
       const partyMaxLots  = new Map();
+      const partyBrokerLots = new Map(); // party_id → { grade: { broker: maxLots } }
       const partyBggPlaced = new Map();
       for (const pm of parties) {
         partySkipBgg.set(pm.party_id, pm.skip_bgg || false);
         partyMaxLots.set(pm.party_id, pm.max_lots || 0);
+        partyBrokerLots.set(pm.party_id, pm.grade_broker_lots || {});
       }
 
       // Build F1 lot list per party (in_f1=true entries — independent of F2)
@@ -301,16 +357,21 @@ export default function MarkingPage() {
       // and which BGG combos are already used — so re-clicking Mark F1 won't duplicate
       const existingPlaced = new Map();   // party_id → count
       const existingBgg = new Map();      // party_id → Set of bgg keys
+      const existingBrokerCount = new Map(); // party_id → Map("grade__broker" → count)
       for (const lot of lots) {
         const slots = next[lot.catalogue_id];
         if (!slots) continue;
         const bggKey = `${lot.garden||''}__${lot.grade||''}`;
+        const gbKey  = `${String(lot.grade||'').trim().toUpperCase()}__${String(lot.broker||'').trim().toUpperCase()}`;
         for (let i = 0; i < AUTO_SLOTS; i++) {
           const s = slots[i];
           if (!s?.party_id) continue;
           existingPlaced.set(s.party_id, (existingPlaced.get(s.party_id) || 0) + 1);
           if (!existingBgg.has(s.party_id)) existingBgg.set(s.party_id, new Set());
           existingBgg.get(s.party_id).add(bggKey);
+          if (!existingBrokerCount.has(s.party_id)) existingBrokerCount.set(s.party_id, new Map());
+          const bc = existingBrokerCount.get(s.party_id);
+          bc.set(gbKey, (bc.get(gbKey) || 0) + 1);
         }
       }
 
@@ -319,6 +380,9 @@ export default function MarkingPage() {
         const f1Lots = partyF1Lots.get(pm.party_id) || [];
         if (!f1Lots.length) continue;
         const maxL = partyMaxLots.get(pm.party_id) || 0;
+        const brokerLimits = partyBrokerLots.get(pm.party_id) || {};
+        // Running per-grade-per-broker count, seeded with already-placed slots
+        const brokerCount = new Map(existingBrokerCount.get(pm.party_id) || new Map());
         // Start from existing count so we don't exceed max_lots across runs
         let placed = existingPlaced.get(pm.party_id) || 0;
 
@@ -335,16 +399,40 @@ export default function MarkingPage() {
           if (!slots) continue;
           if (slots.slice(0, AUTO_SLOTS).some(s => s?.party_id === pm.party_id)) continue;
 
-          const bggKey = `${lotInfo.garden||''}__${lotInfo.grade||''}`;
+          // Resolve broker-limit context for this grade up front (needed for BGG key)
+          const gradeKey  = String(lotInfo.grade  || '').trim().toUpperCase();
+          const brokerKey = String(lotInfo.broker || '').trim().toUpperCase();
+          const gradeBrokers = brokerLimits[gradeKey] || brokerLimits[lotInfo.grade] || null;
+          const gradeHasBrokerLimits = gradeBrokers && Object.keys(gradeBrokers).length > 0;
+
+          // BGG dedup: normally garden+grade. But when this grade has per-broker
+          // limits, include the broker so different brokers don't starve each
+          // other out of the same garden (otherwise broker quotas can't be met).
+          const bggKey = gradeHasBrokerLimits
+            ? `${brokerKey}__${lotInfo.garden||''}__${lotInfo.grade||''}`
+            : `${lotInfo.garden||''}__${lotInfo.grade||''}`;
           if (partySkipBgg.get(pm.party_id)) {
             if (partyBggPlaced.get(pm.party_id).has(bggKey)) continue;
           }
+
+          // Per-broker lot cap (Filter 1):
+          // If this grade has ANY broker limits set, only listed brokers may be
+          // marked, each up to its own limit (blank/unlisted broker = excluded).
+          // If the grade has no broker limits, no per-broker restriction applies.
+          if (gradeHasBrokerLimits) {
+            const limit = gradeBrokers[brokerKey] ?? gradeBrokers[lotInfo.broker];
+            if (!(limit > 0)) continue; // broker not listed for this grade → skip
+            const gbCapKey = `${gradeKey}__${brokerKey}`;
+            if ((brokerCount.get(gbCapKey) || 0) >= limit) continue;
+          }
+          const gbKey = `${gradeKey}__${brokerKey}`;
 
           const freeIdx = slots.findIndex((s, i) => i < AUTO_SLOTS && !s);
           if (freeIdx === -1) continue;
 
           slots[freeIdx] = { party_id: pm.party_id, party_name: pm.party_name, party_code: pm.party_code };
           placed++;
+          brokerCount.set(gbKey, (brokerCount.get(gbKey) || 0) + 1);
           if (partySkipBgg.get(pm.party_id)) partyBggPlaced.get(pm.party_id).add(bggKey);
           totalSlotsPlaced++;
         }
@@ -429,7 +517,7 @@ export default function MarkingPage() {
     finally { setMarking(false); }
   };
 
-  const updateSlot = (catalogueId, slotIdx, value) => {
+  const updateSlot = useCallback((catalogueId, slotIdx, value) => {
     setLotSlots(prev => {
       const arr = [...(prev[catalogueId] || Array(MAX_SLOTS).fill(null))];
       arr[slotIdx] = value;
@@ -450,7 +538,11 @@ export default function MarkingPage() {
           }).catch(() => {});
       }
     }
-  };
+  }, [saleNo, allLots]);
+
+  const dismissDup = useCallback((catalogueId) => {
+    setDupAlerts(prev => { const n = {...prev}; delete n[catalogueId]; return n; });
+  }, []);
 
   // Save — counts per-slot (one save per party+lot pair), not per-lot
   const save = async () => {
@@ -633,8 +725,24 @@ export default function MarkingPage() {
     } catch (e) { setAlert({ msg: 'Failed to clear markings: ' + (e.response?.data?.error || e.message), type: 'error' }); }
   };
 
+  // Delete all marked slots for a single lot (row-level delete button) — no confirm, instant
+  const deleteLotMarkings = useCallback(async (row) => {
+    const lotLabel = row.lot_no || row.catalogue_id;
+    try {
+      const r = await api.delete(`/marking/clear-lot?sale_no=${saleNo}&catalogue_id=${row.catalogue_id}`);
+      setLotSlots(prev => {
+        const next = { ...prev, [row.catalogue_id]: Array(MAX_SLOTS).fill(null) };
+        lotSlotsRef.current = next;
+        return next;
+      });
+      previouslySavedIds.current.delete(String(row.catalogue_id));
+      setAlert({ msg: `✅ Cleared ${r.data.deleted} marking(s) for Lot ${lotLabel}.`, type: 'success' });
+    } catch (e) {
+      setAlert({ msg: 'Failed to delete lot markings: ' + (e.response?.data?.error || e.message), type: 'error' });
+    }
+  }, [saleNo]);
+
   const clearAiMarkings = async () => {
-    if (!saleNo) return;
     if (!window.confirm(`Clear all AI Reference flags for Sale #${saleNo}?`)) return;
     try {
       const r = await api.post('/marking/clear-ai-flags', { sale_no: saleNo });
@@ -770,14 +878,6 @@ export default function MarkingPage() {
   const hasFilters = filterGrades.length > 0 || filterGardens.length > 0 || filterBrokers.length > 0 || filterOrigins.length > 0 || searchLot || showMarked;
   const clearFilters = () => { setFilterGrades([]); setFilterGardens([]); setFilterBrokers([]); setFilterOrigins([]); setSearchLot(''); setShowMarked(false); setFilterGpDates([]); setVisibleCount(200); };
 
-  const fmtRate = row => {
-    const mn = row.min_deal_price, mx = row.max_deal_price;
-    if (!mn && !mx) return '—';
-    if (mn && mx && Math.abs(parseFloat(mn) - parseFloat(mx)) > 0.5) return `${Number(mn).toFixed(0)}-${Number(mx).toFixed(0)}`;
-    return `${Number(mn || mx).toFixed(0)}/-`;
-  };
-  const td = (extra = {}) => ({ padding: '4px 6px', fontSize: 12, color: '#374151', fontWeight: 500, ...extra });
-
   return (
     <div onKeyDown={handlePageKeyDown} tabIndex={-1} style={{ outline: 'none' }}>
       <h2 style={{ marginBottom: 2, color: '#1a3c5e', fontSize: 20, fontWeight: 800 }}>Create Markings</h2>
@@ -815,28 +915,13 @@ export default function MarkingPage() {
                   <Button onClick={save} disabled={saving} variant="success" style={{ padding: '6px 16px', fontSize: 12 }}>
                     {saving ? 'Saving...' : `Save ${markedSlotCount} Slot Markings`}
                   </Button>
-                  <button onClick={saveAsAiRef} disabled={savingAi}
-                    style={{ padding: '6px 14px', borderRadius: 5, border: '1.5px solid #f59e0b', background: '#fef3c7', color: '#92400e', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                    {savingAi ? 'Saving...' : `🤖 Save as AI Ref`}
-                  </button>
-
                 </div>
               )}
-              <button onClick={showAiSaved ? () => setShowAiSaved(false) : loadAiSaved} disabled={aiSavedLoading}
-                style={{ padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                  background: showAiSaved ? '#fef3c7' : '#fffbeb', color: '#92400e',
-                  border: `1.5px solid ${showAiSaved ? '#f59e0b' : '#fde68a'}` }}>
-                {aiSavedLoading ? 'Loading...' : showAiSaved ? '✕ Hide AI Saved' : '🤖 View AI Saved'}
-              </button>
               {saleNo && (
                 <div style={{ display: 'flex', gap: 5 }}>
                   <button onClick={clearAllMarkings}
                     style={{ padding: '4px 10px', borderRadius: 5, fontSize: 11, color: '#991b1b', background: '#fee2e2', border: '1px solid #fecaca', cursor: 'pointer', fontWeight: 600 }}>
                     🗑 Clear Markings
-                  </button>
-                  <button onClick={clearAiMarkings}
-                    style={{ padding: '4px 10px', borderRadius: 5, fontSize: 11, color: '#92400e', background: '#fef3c7', border: '1px solid #fde68a', cursor: 'pointer', fontWeight: 600 }}>
-                    🤖🗑 Clear AI Refs
                   </button>
                 </div>
               )}
@@ -844,9 +929,7 @@ export default function MarkingPage() {
           )}
         </div>
 
-        {allLots.length > 0 && (
-          <>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Select Parties → Mark F1 first, then Mark F2 to fill remaining slots</div>
+        <div style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Select Parties → Mark F1 first, then Mark F2 to fill remaining slots</div>
             <div style={{ display: 'flex', gap: 6, marginBottom: 7, alignItems: 'center', flexWrap: 'wrap' }}>
               <input value={partySearch} onChange={e => setPartySearch(e.target.value)} placeholder="Search parties..."
                 style={{ padding: '5px 8px', border: '1.5px solid #e2e8f0', borderRadius: 5, fontSize: 12, width: 150 }} />
@@ -860,7 +943,7 @@ export default function MarkingPage() {
               <button onClick={() => setSelParties(filteredParties.map(p => ({ id: p.id, party_name: p.party_name, party_code: p.party_code })))} style={{ padding: '5px 10px', borderRadius: 5, border: '1.5px solid #1a3c5e', background: '#1a3c5e', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Select All</button>
               <button onClick={() => setSelParties([])} style={{ padding: '5px 10px', borderRadius: 5, border: '1.5px solid #e2e8f0', background: '#f9fafb', color: '#555', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Deselect All</button>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, maxHeight: 110, overflowY: 'auto', marginBottom: 10 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 10 }}>
               {filteredParties.map(p => {
                 const sel = !!selParties.find(x => x.id === p.id);
                 const typeColor = PARTY_TYPE_COLORS[p.party_type] || '#6b7280';
@@ -900,137 +983,7 @@ export default function MarkingPage() {
               </div>
             )}
 
-            {/* AI Suggestions Panel */}
-            <div style={{ padding: '10px 14px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', marginBottom: 8 }}>
-                💡 AI Marking Suggestions
-                <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 8, color: '#b45309' }}>Based on past markings saved as AI Reference (defaults to last 4 sales)</span>
-              </div>
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#92400e', marginBottom: 4, textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 8 }}>
-                  Select Parties for suggestion
-                  <button onMouseDown={() => setAiParties(allParties.map(p => p.id))}
-                    style={{ padding: '1px 8px', borderRadius: 4, border: '1px solid #f59e0b', background: '#fef3c7', color: '#92400e', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>Select All</button>
-                  <button onMouseDown={() => setAiParties([])}
-                    style={{ padding: '1px 8px', borderRadius: 4, border: '1px solid #fde68a', background: '#fffbeb', color: '#92400e', fontSize: 9, fontWeight: 700, cursor: 'pointer' }}>Clear</button>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, maxHeight: 80, overflowY: 'auto', padding: '3px 0' }}>
-                  {allParties.map(p => {
-                    const sel = aiParties.includes(p.id);
-                    return (
-                      <div key={p.id} onClick={() => setAiParties(prev => sel ? prev.filter(x => x !== p.id) : [...prev, p.id])}
-                        style={{ padding: '3px 8px', borderRadius: 14, cursor: 'pointer', fontSize: 11, fontWeight: 600, userSelect: 'none',
-                          background: sel ? '#f59e0b' : '#fef3c7', color: sel ? '#fff' : '#92400e',
-                          border: `1.5px solid ${sel ? '#f59e0b' : '#fde68a'}` }}>
-                        {sel ? '✓ ' : ''}[{p.party_code}] {p.party_name}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: '#92400e', marginBottom: 4, textTransform: 'uppercase' }}>
-                  Reference Sales (optional — leave blank for last 4)
-                  {aiUsedSaleNos.length > 0 && <span style={{ fontWeight: 400, marginLeft: 6, color: '#b45309' }}>Used: {aiUsedSaleNos.join(', ')}</span>}
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                  {saleNos.map(s => {
-                    const sel = aiSaleNos.includes(String(s.sale_no));
-                    return (
-                      <div key={s.sale_no} onClick={() => setAiSaleNos(prev => sel ? prev.filter(x => x !== String(s.sale_no)) : [...prev, String(s.sale_no)])}
-                        style={{ padding: '3px 10px', borderRadius: 14, cursor: 'pointer', fontSize: 11, fontWeight: 700, userSelect: 'none',
-                          background: sel ? '#f59e0b' : '#fef3c7', color: sel ? '#fff' : '#92400e',
-                          border: `1.5px solid ${sel ? '#f59e0b' : '#fde68a'}` }}>
-                        {sel ? '✓ ' : ''}Sale {s.sale_no}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
-                <button onClick={loadAiSugg} disabled={aiLoading || !aiParties.length}
-                  style={{ padding: '5px 12px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: 700, fontSize: 12 }}>
-                  {aiLoading ? 'Loading...' : 'Get Suggestions'}
-                </button>
-                {aiSugg.length > 0 && <>
-                  <button onClick={applyAiSugg} disabled={aiApplying || !saleNo}
-                    style={{ padding: '5px 12px', background: '#1a7a4a', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: 700, fontSize: 12 }}>
-                    {aiApplying ? 'Applying...' : `Apply ${aiSugg.length} to Sale #${saleNo}`}
-                  </button>
-                  <button onClick={() => setAiSugg([])} style={{ fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', color: '#888' }}>Clear</button>
-                </>}
-              </div>
-              {aiSugg.length > 0 && (
-                <div style={{ overflowX: 'auto', marginTop: 10 }}>
-                  <table style={{ fontSize: 11, borderCollapse: 'collapse', width: '100%' }}>
-                    <thead><tr style={{ background: '#fef3c7' }}>
-                      {['Party','Garden','Grade','×','Range','Confidence'].map(h => <th key={h} style={{ padding: '4px 8px', textAlign: 'left', fontWeight: 700, color: '#92400e' }}>{h}</th>)}
-                    </tr></thead>
-                    <tbody>{aiSugg.map((s, i) => (
-                      <tr key={i} style={{ borderBottom: '1px solid #fde68a', background: i%2===0?'#fffbeb':'#fef9e7' }}>
-                        <td style={{ padding: '4px 8px' }}><span style={{ background: '#1a3c5e', color: '#fff', padding: '1px 6px', borderRadius: 99, fontSize: 10, fontWeight: 700 }}>{s.party_code}</span></td>
-                        <td style={{ padding: '4px 8px', fontWeight: 700, color: '#1a3c5e', fontSize: 11 }}>{s.garden}</td>
-                        <td style={{ padding: '4px 8px' }}><span style={{ background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: 99, fontSize: 10, fontWeight: 700 }}>{s.grade}</span></td>
-                        <td style={{ padding: '4px 8px', fontWeight: 700, fontSize: 11 }}>{s.frequency}</td>
-                        <td style={{ padding: '4px 8px', fontSize: 11 }}>{s.price_range}</td>
-                        <td style={{ padding: '4px 8px' }}><span style={{ padding: '1px 7px', borderRadius: 99, fontSize: 10, fontWeight: 700, background: s.confidence==='High'?'#dcfce7':s.confidence==='Medium'?'#fef9c3':'#fee2e2', color: s.confidence==='High'?'#166534':s.confidence==='Medium'?'#92400e':'#991b1b' }}>{s.confidence}</span></td>
-                      </tr>
-                    ))}</tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          </>
-        )}
       </Card>
-
-      {/* AI Saved Markings Viewer */}
-      {showAiSaved && (
-        <Card style={{ marginBottom: 14, padding: 0, overflow: 'hidden', border: '2px solid #f59e0b' }}>
-          <div style={{ padding: '8px 14px', background: '#fef3c7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontWeight: 700, fontSize: 13, color: '#92400e' }}>
-              🤖 AI Reference Markings
-              {saleNo && <span style={{ fontWeight: 400, fontSize: 11, marginLeft: 8 }}>Sale #{saleNo}</span>}
-              <span style={{ fontWeight: 400, fontSize: 11, marginLeft: 8, color: '#b45309' }}>({aiSavedRows.length} records)</span>
-            </div>
-            <button onClick={() => setShowAiSaved(false)} style={{ padding: '3px 10px', borderRadius: 4, border: '1px solid #e5e7eb', background: '#fff', color: '#555', fontSize: 11, cursor: 'pointer' }}>✕ Close</button>
-          </div>
-          {aiSavedRows.length === 0 ? (
-            <div style={{ padding: 24, textAlign: 'center', color: '#92400e', fontSize: 12 }}>No AI reference markings saved yet.</div>
-          ) : (
-            <div style={{ overflowX: 'auto', maxHeight: 300, overflowY: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                <thead style={{ position: 'sticky', top: 0 }}>
-                  <tr style={{ background: '#fef3c7' }}>
-                    {['Sale','Party','Garden','Grade','Broker','Bags','NWt','Price','Saved On',''].map(h => (
-                      <th key={h} style={{ padding: '5px 8px', textAlign: 'left', fontWeight: 700, color: '#92400e', borderBottom: '1px solid #fde68a' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {aiSavedRows.map((row, i) => (
-                    <tr key={row.id} style={{ borderBottom: '1px solid #fef3c7', background: i%2===0 ? '#fffbeb' : '#fefce8' }}>
-                      <td style={{ padding: '4px 8px' }}>{row.sale_no}</td>
-                      <td style={{ padding: '4px 8px' }}><span style={{ background: '#1a3c5e', color: '#fff', padding: '1px 6px', borderRadius: 99, fontSize: 10, fontWeight: 700 }}>{row.party_code}</span></td>
-                      <td style={{ padding: '4px 8px', fontWeight: 700, color: '#1a3c5e' }}>{row.garden}</td>
-                      <td style={{ padding: '4px 8px' }}><span style={{ background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: 99, fontSize: 10, fontWeight: 700 }}>{row.grade}</span></td>
-                      <td style={{ padding: '4px 8px' }}>{row.broker}</td>
-                      <td style={{ padding: '4px 8px' }}>{row.bags}</td>
-                      <td style={{ padding: '4px 8px' }}>{row.net_wt}</td>
-                      <td style={{ padding: '4px 8px', fontWeight: 700 }}>{row.final_price || row.suggested_price || '—'}</td>
-                      <td style={{ padding: '4px 8px', color: '#9ca3af', fontSize: 10 }}>{row.created_at ? new Date(row.created_at).toLocaleDateString() : '—'}</td>
-                      <td style={{ padding: '4px 8px' }}>
-                        <button onClick={() => deleteAiSavedRow(row.id)}
-                          style={{ padding: '1px 7px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fecaca', borderRadius: 3, fontSize: 10, cursor: 'pointer', fontWeight: 600 }}>Del</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-      )}
 
       {allLots.length > 0 && (
         <Card style={{ padding: 0, overflow: 'hidden' }}>
@@ -1071,42 +1024,22 @@ export default function MarkingPage() {
                     </div>
                   </th>
                   <th style={{ padding: '7px 6px', textAlign: 'left', fontSize: 11 }}>Invoice</th>
+                  <th style={{ padding: '7px 4px', textAlign: 'center', fontSize: 11, width: 28 }}></th>
                 </tr>
               </thead>
               <tbody>
                 {visibleLots.length === 0
-                  ? <tr><td colSpan={15} style={{ padding: 20, textAlign: 'center', color: '#aaa' }}>No lots match filters. <button onClick={clearFilters} style={{ color: '#1a3c5e', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Clear</button></td></tr>
+                  ? <tr><td colSpan={16} style={{ padding: 20, textAlign: 'center', color: '#aaa' }}>No lots match filters. <button onClick={clearFilters} style={{ color: '#1a3c5e', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Clear</button></td></tr>
                   : visibleLots.map((row, rowIdx) => {
                     const slots = lotSlots[row.catalogue_id] || Array(MAX_SLOTS).fill(null);
-                    const hasSlot = slots.some(s => s?.party_id);
-                    const dup = dupAlerts[row.catalogue_id];
                     return (
-                      <React.Fragment key={row.catalogue_id}>
-                        <tr style={{ borderBottom: dup ? 'none' : '1px solid #f0f4f8', background: hasSlot ? (rowIdx%2===0?'#f0fdf4':'#e8faf0') : (rowIdx%2===0?'#fff':'#fafbfc') }}>
-                          <td style={td({ textAlign: 'center', color: '#9ca3af', fontWeight: 500 })}>{row.sale_no}</td>
-                          {slots.map((slot, si) => (
-                            <td key={si} style={{ padding: '3px 2px', textAlign: 'center' }}>
-                              <SlotCell catalogueId={row.catalogue_id} slotIdx={si} value={slot} onChange={v => updateSlot(row.catalogue_id, si, v)} allParties={allParties} visibleLots={visibleLots} rowIdx={rowIdx} />
-                            </td>
-                          ))}
-                          <td style={td({ fontWeight: 600 })}>{row.broker}</td>
-                          <td style={td({ fontFamily: 'monospace', color: '#1a3c5e', fontWeight: 700 })}>{row.lot_no}</td>
-                          <td style={{ ...td({ fontWeight: 700, color: '#1a3c5e' }), maxWidth: 105, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.garden}>{row.garden}</td>
-                          <td style={td()}><span style={{ background: '#dbeafe', color: '#1e40af', padding: '1px 6px', borderRadius: 99, fontSize: 11, fontWeight: 700 }}>{row.grade}</span></td>
-                          <td style={td({ textAlign: 'right', fontWeight: 700, color: '#1a3c5e', fontSize: 12 })}>{fmtRate(row)}</td>
-                          <td style={{ ...td({ color: '#6b7280', fontSize: 11 }), maxWidth: 85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={row.origin}>{row.origin || '—'}</td>
-                          <td style={td({ textAlign: 'right', fontWeight: 700 })}>{row.bags || '—'}</td>
-                          <td style={td({ textAlign: 'right', fontWeight: 700 })}>{row.net_wt || '—'}</td>
-                          <td style={td({ textAlign: 'center', color: '#374151', fontWeight: 600 })}>{fmtDate(row.gp_date)}</td>
-                          <td style={td({ color: '#374151', fontFamily: 'monospace', fontSize: 12, fontWeight: 600 })}>{row.invoice || '—'}</td>
-                        </tr>
-                        {dup && (
-                          <tr><td colSpan={15} style={{ padding: '3px 12px', background: '#fffbeb', borderBottom: '1px solid #f0f4f8', fontSize: 11, color: '#92400e', fontWeight: 600 }}>
-                            {dup}
-                            <button onClick={() => setDupAlerts(prev => { const n={...prev}; delete n[row.catalogue_id]; return n; })} style={{ marginLeft: 8, border: 'none', background: 'none', cursor: 'pointer', fontSize: 10, color: '#888' }}>x</button>
-                          </td></tr>
-                        )}
-                      </React.Fragment>
+                      <LotRow key={row.catalogue_id} row={row} rowIdx={rowIdx} slots={slots}
+                        dupAlert={dupAlerts[row.catalogue_id]}
+                        onSlotChange={updateSlot}
+                        allParties={allParties}
+                        visibleLots={visibleLots}
+                        onDismissDup={dismissDup}
+                        onDeleteLot={deleteLotMarkings} />
                     );
                   })
                 }

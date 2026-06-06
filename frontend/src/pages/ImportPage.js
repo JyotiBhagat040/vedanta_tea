@@ -239,8 +239,15 @@ export default function ImportPage() {
         const catLog = pair.find(l => l.file_type === 'catalogue');
         const soldLog = pair.find(l => l.file_type === 'sold_list');
         groups.push({ group: log.import_group, catalogue: catLog, sold_list: soldLog, sale_no: log.sale_no, imported_at: log.imported_at, batch_name: log.batch_name || '' });
+      } else if (log.file_type === 'catalogue') {
+        // Standalone catalogue — look up the sold list it was mapped to (catalogue.sold_list_sale_no)
+        const linkedSold = log.sold_list_sale_no
+          ? importLogs.find(l => l.file_type === 'sold_list' && String(l.sale_no) === String(log.sold_list_sale_no))
+          : null;
+        groups.push({ group: null, catalogue: log, sold_list: linkedSold, sale_no: log.sale_no, imported_at: log.imported_at, batch_name: log.batch_name || '' });
       } else {
-        groups.push({ group: null, catalogue: log.file_type === 'catalogue' ? log : null, sold_list: log.file_type === 'sold_list' ? log : null, sale_no: log.sale_no, imported_at: log.imported_at, batch_name: log.batch_name || '' });
+        // Standalone sold list
+        groups.push({ group: null, catalogue: null, sold_list: log, sale_no: log.sale_no, imported_at: log.imported_at, batch_name: log.batch_name || '' });
       }
     }
     return groups;
@@ -432,7 +439,9 @@ export default function ImportPage() {
                     <td style={{ padding: '5px 10px' }}>
                       {g.catalogue && g.sold_list
                         ? <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#dcfce7', color: '#166534', fontWeight: 700 }}>🔗 Paired</span>
-                        : <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>Catalogue only</span>}
+                        : g.catalogue
+                        ? <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>Catalogue only</span>
+                        : <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#dbeafe', color: '#1e40af', fontWeight: 700 }}>Sold List only</span>}
                     </td>
                     <td style={{ padding: '5px 10px', fontSize: 11, color: '#888' }}>{new Date(g.imported_at).toLocaleString()}</td>
                   </tr>

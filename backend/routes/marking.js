@@ -78,14 +78,17 @@ async function fetchAllLots(sale_no, batch_name) {
     FROM catalogue c
     LEFT JOIN (
       SELECT
+        sale_no,
         TRIM(UPPER(mark))  AS mark_norm,
         TRIM(UPPER(grade)) AS grade_norm,
         MIN(deal_price)    AS min_deal_price,
         MAX(deal_price)    AS max_deal_price
       FROM sold_list
       WHERE deal_price IS NOT NULL
-      GROUP BY TRIM(UPPER(mark)), TRIM(UPPER(grade))
-    ) sp ON sp.mark_norm = TRIM(UPPER(c.mark)) AND sp.grade_norm = TRIM(UPPER(c.grade))
+      GROUP BY sale_no, TRIM(UPPER(mark)), TRIM(UPPER(grade))
+    ) sp ON sp.sale_no = c.sold_list_sale_no
+        AND sp.mark_norm = TRIM(UPPER(c.mark))
+        AND sp.grade_norm = TRIM(UPPER(c.grade))
     WHERE c.sale_no = $1${batchWhere}
     ORDER BY TRIM(UPPER(c.broker)),
       REGEXP_REPLACE(c.invoice_no,'[^0-9]','','g')::INTEGER NULLS LAST,
@@ -476,10 +479,16 @@ router.post('/save-single', async (req, res) => {
               sp.min_deal_price, sp.max_deal_price
        FROM catalogue c
        LEFT JOIN (
-         SELECT TRIM(UPPER(mark)) AS m, TRIM(UPPER(grade)) AS g,
-                MIN(deal_price) AS min_deal_price, MAX(deal_price) AS max_deal_price
-         FROM sold_list WHERE deal_price IS NOT NULL GROUP BY 1, 2
-       ) sp ON sp.m = TRIM(UPPER(c.mark)) AND sp.g = TRIM(UPPER(c.grade))
+         SELECT sale_no,
+                TRIM(UPPER(mark))  AS m,
+                TRIM(UPPER(grade)) AS g,
+                MIN(deal_price)    AS min_deal_price,
+                MAX(deal_price)    AS max_deal_price
+         FROM sold_list WHERE deal_price IS NOT NULL
+         GROUP BY sale_no, TRIM(UPPER(mark)), TRIM(UPPER(grade))
+       ) sp ON sp.sale_no = c.sold_list_sale_no
+           AND sp.m = TRIM(UPPER(c.mark))
+           AND sp.g = TRIM(UPPER(c.grade))
        WHERE c.id=$1`, [catalogue_id]
     );
     if (!lots.length) return res.status(404).json({ error: 'Lot not found' });
@@ -716,6 +725,22 @@ router.get('/ai-saved', async (req, res) => {
     q += ' ORDER BY m.created_at DESC LIMIT 500';
     const { rows } = await pool.query(q, params);
     res.json(rows);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── DELETE /api/marking/clear-lot — delete all markings for one catalogue_id ──
+// Used by the per-row delete button on MarkingPage.
+// Must stay BEFORE /:id route to avoid being swallowed by the wildcard.
+router.delete('/clear-lot', async (req, res) => {
+  const { sale_no, catalogue_id } = req.query;
+  if (!sale_no || !catalogue_id)
+    return res.status(400).json({ error: 'sale_no and catalogue_id required' });
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM markings WHERE sale_no=$1 AND catalogue_id::text=$2`,
+      [sale_no, String(catalogue_id)]
+    );
+    res.json({ success: true, deleted: rowCount });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

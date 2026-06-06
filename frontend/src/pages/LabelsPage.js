@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, api } from '../App';
 
 export default function LabelsPage() {
@@ -11,9 +11,15 @@ export default function LabelsPage() {
   const [loading,     setLoading]     = useState(false);
   const [showHist,    setShowHist]    = useState(true);
   const [prevSales,   setPrevSales]   = useState(2);
-  const [filterParty, setFilterParty] = useState('');
-  const [filterGrade, setFilterGrade] = useState('');
-  const [filterBroker, setFilterBroker] = useState(''); // NEW
+  const [filterParties, setFilterParties] = useState([]);
+  const [partyDropOpen, setPartyDropOpen] = useState(false);
+  const [partySearch,   setPartySearch]   = useState('');
+  const [filterGrades,  setFilterGrades]  = useState([]);
+  const [gradeDropOpen, setGradeDropOpen] = useState(false);
+  const [gradeSearch,   setGradeSearch]   = useState('');
+  const [filterBrokers, setFilterBrokers] = useState([]);
+  const [brokerDropOpen, setBrokerDropOpen] = useState(false);
+  const [brokerSearch,   setBrokerSearch]   = useState('');
   const [lotFrom, setLotFrom] = useState('');
   const [lotTo, setLotTo] = useState('');
 
@@ -28,6 +34,31 @@ export default function LabelsPage() {
       })
       .catch(() => {});
   }, []);
+
+  const partyDropRef  = useRef(null);
+  const gradeDropRef  = useRef(null);
+  const brokerDropRef = useRef(null);
+
+  useEffect(() => {
+    if (!partyDropOpen) return;
+    const h = e => { if (partyDropRef.current && !partyDropRef.current.contains(e.target)) { setPartyDropOpen(false); setPartySearch(''); } };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [partyDropOpen]);
+
+  useEffect(() => {
+    if (!gradeDropOpen) return;
+    const h = e => { if (gradeDropRef.current && !gradeDropRef.current.contains(e.target)) { setGradeDropOpen(false); setGradeSearch(''); } };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [gradeDropOpen]);
+
+  useEffect(() => {
+    if (!brokerDropOpen) return;
+    const h = e => { if (brokerDropRef.current && !brokerDropRef.current.contains(e.target)) { setBrokerDropOpen(false); setBrokerSearch(''); } };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, [brokerDropOpen]);
 
   const load = async (sale, batch, pSales) => {
     if (!sale) return;
@@ -74,9 +105,9 @@ export default function LabelsPage() {
   const lotToParsed = parseLot(lotTo);
 
   const filtered = unique.filter(m => {
-    if (filterParty  && m.party_code !== filterParty)  return false;
-    if (filterGrade  && m.grade      !== filterGrade)  return false;
-    if (filterBroker && m.broker     !== filterBroker) return false;
+    if (filterParties.length > 0 && !filterParties.includes(m.party_code)) return false;
+    if (filterGrades.length  > 0 && !filterGrades.includes(m.grade))       return false;
+    if (filterBrokers.length > 0 && !filterBrokers.includes(m.broker))     return false;
     if (lotFromParsed || lotToParsed) {
       const lot = parseLot(m.lot_no);
       if (!lot) return false;
@@ -319,34 +350,174 @@ body{font-family:Arial,Helvetica,sans-serif;color:#000;}
             )}
           </div>
 
-          {/* Party filter */}
-          <div>
+          {/* Party filter — multi-select */}
+          <div style={{ position: 'relative' }} ref={partyDropRef}>
             <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#6b7280', marginBottom: 4, textTransform: 'uppercase' }}>Party</label>
-            <select value={filterParty} onChange={e => setFilterParty(e.target.value)}
-              style={{ padding: '6px 10px', border: '1.5px solid #cbd5e0', borderRadius: 5, fontSize: 12, minWidth: 140 }}>
-              <option value="">All Parties</option>
-              {parties.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
+            <div
+              onClick={() => setPartyDropOpen(o => !o)}
+              style={{ padding: '6px 10px', border: `1.5px solid ${partyDropOpen ? '#1a3c5e' : '#cbd5e0'}`, borderRadius: 5, fontSize: 12, minWidth: 160, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, background: '#fff', userSelect: 'none' }}>
+              <span style={{ color: filterParties.length ? '#1a3c5e' : '#9ca3af', fontWeight: filterParties.length ? 700 : 400 }}>
+                {filterParties.length === 0 ? 'All Parties' : filterParties.length === 1 ? filterParties[0] : `${filterParties.length} parties`}
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                {filterParties.length > 0 && (
+                  <span style={{ background: '#1a3c5e', color: '#fff', borderRadius: 99, fontSize: 9, padding: '1px 5px', fontWeight: 700 }}>{filterParties.length}</span>
+                )}
+                <span style={{ fontSize: 9, opacity: 0.5 }}>▼</span>
+              </span>
+            </div>
+            {partyDropOpen && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 9999, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.15)', minWidth: 200, maxHeight: 320, display: 'flex', flexDirection: 'column', marginTop: 2 }}
+                onMouseLeave={() => {}}>
+                {/* Search */}
+                <div style={{ padding: '6px 8px', borderBottom: '1px solid #f0f4f8', flexShrink: 0 }}>
+                  <input autoFocus value={partySearch} onChange={e => setPartySearch(e.target.value)}
+                    placeholder="Search parties..." onMouseDown={e => e.stopPropagation()}
+                    style={{ width: '100%', padding: '4px 7px', border: '1.5px solid #cbd5e0', borderRadius: 5, fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
+                </div>
+                {/* Select All / Clear row */}
+                <div style={{ padding: '4px 10px', borderBottom: '1px solid #f0f4f8', display: 'flex', justifyContent: 'space-between', flexShrink: 0 }}>
+                  <button onMouseDown={e => { e.preventDefault(); setFilterParties([...parties]); }}
+                    style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 10, color: '#1a3c5e', fontWeight: 700 }}>Select All</button>
+                  <button onMouseDown={e => { e.preventDefault(); setFilterParties([]); }}
+                    style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 10, color: '#c0392b', fontWeight: 700 }}>Clear</button>
+                </div>
+                {/* Party list */}
+                <div style={{ overflowY: 'auto', flex: 1 }}>
+                  {parties.filter(p => !partySearch || p.toLowerCase().includes(partySearch.toLowerCase())).map(p => {
+                    const checked = filterParties.includes(p);
+                    return (
+                      <div key={p} onMouseDown={e => { e.preventDefault(); setFilterParties(prev => checked ? prev.filter(x => x !== p) : [...prev, p]); }}
+                        style={{ padding: '7px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                          background: checked ? '#eff6ff' : '#fff', fontSize: 12, color: '#1a2533', borderBottom: '1px solid #f9fafb' }}>
+                        <div style={{ width: 13, height: 13, borderRadius: 2, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          border: `2px solid ${checked ? '#1a3c5e' : '#cbd5e0'}`, background: checked ? '#1a3c5e' : '#fff' }}>
+                          {checked && <span style={{ color: '#fff', fontSize: 8, fontWeight: 700 }}>✓</span>}
+                        </div>
+                        <span style={{ fontWeight: checked ? 700 : 400 }}>{p}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Close button */}
+                <div style={{ padding: '5px 10px', borderTop: '1px solid #f0f4f8', flexShrink: 0, textAlign: 'right' }}>
+                  <button onMouseDown={e => { e.preventDefault(); setPartyDropOpen(false); }}
+                    style={{ border: '1px solid #cbd5e0', background: '#f9fafb', borderRadius: 4, padding: '2px 12px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>Done</button>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Grade filter */}
-          <div>
+          {/* Grade filter — multi-select */}
+          <div style={{ position: 'relative' }} ref={gradeDropRef}>
             <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#6b7280', marginBottom: 4, textTransform: 'uppercase' }}>Grade</label>
-            <select value={filterGrade} onChange={e => setFilterGrade(e.target.value)}
-              style={{ padding: '6px 10px', border: '1.5px solid #cbd5e0', borderRadius: 5, fontSize: 12, minWidth: 110 }}>
-              <option value="">All Grades</option>
-              {grades.map(g => <option key={g} value={g}>{g}</option>)}
-            </select>
+            <div
+              onClick={() => setGradeDropOpen(o => !o)}
+              style={{ padding: '6px 10px', border: `1.5px solid ${gradeDropOpen ? '#1a3c5e' : '#cbd5e0'}`, borderRadius: 5, fontSize: 12, minWidth: 140, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, background: '#fff', userSelect: 'none' }}>
+              <span style={{ color: filterGrades.length ? '#1a3c5e' : '#9ca3af', fontWeight: filterGrades.length ? 700 : 400 }}>
+                {filterGrades.length === 0 ? 'All Grades' : filterGrades.length === 1 ? filterGrades[0] : `${filterGrades.length} grades`}
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                {filterGrades.length > 0 && (
+                  <span style={{ background: '#1a3c5e', color: '#fff', borderRadius: 99, fontSize: 9, padding: '1px 5px', fontWeight: 700 }}>{filterGrades.length}</span>
+                )}
+                <span style={{ fontSize: 9, opacity: 0.5 }}>▼</span>
+              </span>
+            </div>
+            {gradeDropOpen && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 9999, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.15)', minWidth: 180, maxHeight: 300, display: 'flex', flexDirection: 'column', marginTop: 2 }}>
+                <div style={{ padding: '6px 8px', borderBottom: '1px solid #f0f4f8', flexShrink: 0 }}>
+                  <input autoFocus value={gradeSearch} onChange={e => setGradeSearch(e.target.value)}
+                    placeholder="Search grades..." onMouseDown={e => e.stopPropagation()}
+                    style={{ width: '100%', padding: '4px 7px', border: '1.5px solid #cbd5e0', borderRadius: 5, fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
+                </div>
+                <div style={{ padding: '4px 10px', borderBottom: '1px solid #f0f4f8', display: 'flex', justifyContent: 'space-between', flexShrink: 0 }}>
+                  <button onMouseDown={e => { e.preventDefault(); setFilterGrades([...grades]); }}
+                    style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 10, color: '#1a3c5e', fontWeight: 700 }}>Select All</button>
+                  <button onMouseDown={e => { e.preventDefault(); setFilterGrades([]); }}
+                    style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 10, color: '#c0392b', fontWeight: 700 }}>Clear</button>
+                </div>
+                <div style={{ overflowY: 'auto', flex: 1 }}>
+                  {grades.filter(g => !gradeSearch || g.toLowerCase().includes(gradeSearch.toLowerCase())).map(g => {
+                    const checked = filterGrades.includes(g);
+                    return (
+                      <div key={g} onMouseDown={e => { e.preventDefault(); setFilterGrades(prev => checked ? prev.filter(x => x !== g) : [...prev, g]); }}
+                        style={{ padding: '7px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                          background: checked ? '#eff6ff' : '#fff', fontSize: 12, color: '#1a2533', borderBottom: '1px solid #f9fafb' }}>
+                        <div style={{ width: 13, height: 13, borderRadius: 2, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          border: `2px solid ${checked ? '#1a3c5e' : '#cbd5e0'}`, background: checked ? '#1a3c5e' : '#fff' }}>
+                          {checked && <span style={{ color: '#fff', fontSize: 8, fontWeight: 700 }}>✓</span>}
+                        </div>
+                        <span style={{ fontWeight: checked ? 700 : 400 }}>{g}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ padding: '5px 10px', borderTop: '1px solid #f0f4f8', flexShrink: 0, textAlign: 'right' }}>
+                  <button onMouseDown={e => { e.preventDefault(); setGradeDropOpen(false); }}
+                    style={{ border: '1px solid #cbd5e0', background: '#f9fafb', borderRadius: 4, padding: '2px 12px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>Done</button>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Broker filter — NEW */}
-          <div>
+          {/* Broker filter — multi-select */}
+          <div style={{ position: 'relative' }} ref={brokerDropRef}>
             <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: '#6b7280', marginBottom: 4, textTransform: 'uppercase' }}>Broker</label>
-            <select value={filterBroker} onChange={e => setFilterBroker(e.target.value)}
-              style={{ padding: '6px 10px', border: '1.5px solid #cbd5e0', borderRadius: 5, fontSize: 12, minWidth: 120 }}>
-              <option value="">All Brokers</option>
-              {brokers.map(b => <option key={b} value={b}>{b}</option>)}
-            </select>
+            <div
+              onClick={() => setBrokerDropOpen(o => !o)}
+              style={{ padding: '6px 10px', border: `1.5px solid ${brokerDropOpen ? '#1a3c5e' : '#cbd5e0'}`, borderRadius: 5, fontSize: 12, minWidth: 150, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, background: '#fff', userSelect: 'none' }}>
+              <span style={{ color: filterBrokers.length ? '#1a3c5e' : '#9ca3af', fontWeight: filterBrokers.length ? 700 : 400 }}>
+                {filterBrokers.length === 0 ? 'All Brokers' : filterBrokers.length === 1 ? filterBrokers[0] : `${filterBrokers.length} brokers`}
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                {filterBrokers.length > 0 && (
+                  <span style={{ background: '#1a3c5e', color: '#fff', borderRadius: 99, fontSize: 9, padding: '1px 5px', fontWeight: 700 }}>{filterBrokers.length}</span>
+                )}
+                <span style={{ fontSize: 9, opacity: 0.5 }}>▼</span>
+              </span>
+            </div>
+            {brokerDropOpen && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 9999, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.15)', minWidth: 200, maxHeight: 300, display: 'flex', flexDirection: 'column', marginTop: 2 }}>
+                <div style={{ padding: '6px 8px', borderBottom: '1px solid #f0f4f8', flexShrink: 0 }}>
+                  <input autoFocus value={brokerSearch} onChange={e => setBrokerSearch(e.target.value)}
+                    placeholder="Search brokers..." onMouseDown={e => e.stopPropagation()}
+                    style={{ width: '100%', padding: '4px 7px', border: '1.5px solid #cbd5e0', borderRadius: 5, fontSize: 11, outline: 'none', boxSizing: 'border-box' }} />
+                </div>
+                <div style={{ padding: '4px 10px', borderBottom: '1px solid #f0f4f8', display: 'flex', justifyContent: 'space-between', flexShrink: 0 }}>
+                  <button onMouseDown={e => { e.preventDefault(); setFilterBrokers([...brokers]); }}
+                    style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 10, color: '#1a3c5e', fontWeight: 700 }}>Select All</button>
+                  <button onMouseDown={e => { e.preventDefault(); setFilterBrokers([]); }}
+                    style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 10, color: '#c0392b', fontWeight: 700 }}>Clear</button>
+                </div>
+                <div style={{ overflowY: 'auto', flex: 1 }}>
+                  {brokers.filter(b => !brokerSearch || b.toLowerCase().includes(brokerSearch.toLowerCase())).map(b => {
+                    const checked = filterBrokers.includes(b);
+                    return (
+                      <div key={b} onMouseDown={e => { e.preventDefault(); setFilterBrokers(prev => checked ? prev.filter(x => x !== b) : [...prev, b]); }}
+                        style={{ padding: '7px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
+                          background: checked ? '#eff6ff' : '#fff', fontSize: 12, color: '#1a2533', borderBottom: '1px solid #f9fafb' }}>
+                        <div style={{ width: 13, height: 13, borderRadius: 2, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          border: `2px solid ${checked ? '#1a3c5e' : '#cbd5e0'}`, background: checked ? '#1a3c5e' : '#fff' }}>
+                          {checked && <span style={{ color: '#fff', fontSize: 8, fontWeight: 700 }}>✓</span>}
+                        </div>
+                        <span style={{ fontWeight: checked ? 700 : 400 }}>{b}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ padding: '5px 10px', borderTop: '1px solid #f0f4f8', flexShrink: 0, textAlign: 'right' }}>
+                  <button onMouseDown={e => { e.preventDefault(); setBrokerDropOpen(false); }}
+                    style={{ border: '1px solid #cbd5e0', background: '#f9fafb', borderRadius: 4, padding: '2px 12px', fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>Done</button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Lot Range filter */}
@@ -371,8 +542,8 @@ body{font-family:Arial,Helvetica,sans-serif;color:#000;}
               Print {filtered.length} Labels ({Math.ceil(filtered.length / 48)} page{filtered.length > 48 ? 's' : ''})
             </button>
             <span style={{ fontSize: 11, color: '#6b7280' }}>4 cols x 12 rows — 48×24mm — 48 per A4</span>
-            {(filterParty || filterGrade || filterBroker || lotFrom || lotTo) && (
-              <button onClick={() => { setFilterParty(''); setFilterGrade(''); setFilterBroker(''); setLotFrom(''); setLotTo(''); }}
+            {(filterParties.length > 0 || filterGrades.length > 0 || filterBrokers.length > 0 || lotFrom || lotTo) && (
+              <button onClick={() => { setFilterParties([]); setFilterGrades([]); setFilterBrokers([]); setLotFrom(''); setLotTo(''); }}
                 style={{ fontSize: 11, color: '#c0392b', background: 'none', border: '1px solid #fecaca', borderRadius: 4, padding: '3px 10px', cursor: 'pointer' }}>
                 Clear filters
               </button>

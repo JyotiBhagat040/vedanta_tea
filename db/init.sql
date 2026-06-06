@@ -2,10 +2,10 @@
 -- PostgreSQL database dump
 --
 
-\restrict Je8Wq8yhMjOLIjaBCDUchedAzZ4lc92TbEUdbkC4OdG4kpCIcgDe02uhvccktKX
+\restrict VHn8xLh4d0ZgHNcXXpW2g8PEzP5mN7eRAR0v1x9lfgrFnVLeXa0IKihL9VGnP6N
 
--- Dumped from database version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
--- Dumped by pg_dump version 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1)
+-- Dumped from database version 15.17
+-- Dumped by pg_dump version 15.17
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -17,13 +17,6 @@ SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
-
---
--- Name: public; Type: SCHEMA; Schema: -; Owner: -
---
-
--- *not* creating schema, since initdb creates it
-
 
 --
 -- Name: uuid-ossp; Type: EXTENSION; Schema: -; Owner: -
@@ -44,6 +37,52 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
+-- Name: ai_markings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ai_markings (
+    id integer NOT NULL,
+    sale_no text,
+    party_id text,
+    party_name text,
+    party_code text,
+    garden text,
+    grade text,
+    mark text,
+    broker text,
+    bags text,
+    net_wt text,
+    suggested_price text,
+    final_price text,
+    invoice text,
+    origin text,
+    catalogue_id text,
+    batch_name text DEFAULT ''::text,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: ai_markings_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.ai_markings_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: ai_markings_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.ai_markings_id_seq OWNED BY public.ai_markings.id;
+
+
+--
 -- Name: catalogue; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -61,7 +100,9 @@ CREATE TABLE public.catalogue (
     upset_price numeric(10,2),
     last_sale_price numeric(10,2),
     created_at timestamp without time zone DEFAULT now(),
-    invoice_no_raw text
+    invoice_no_raw text,
+    batch_name text DEFAULT ''::text,
+    sold_list_sale_no text
 );
 
 
@@ -82,7 +123,8 @@ CREATE TABLE public.sold_list (
     broker character varying(100),
     deal_price numeric(10,2),
     buyer_code character varying(50),
-    created_at timestamp without time zone DEFAULT now()
+    created_at timestamp without time zone DEFAULT now(),
+    batch_name text DEFAULT ''::text
 );
 
 
@@ -127,7 +169,11 @@ CREATE TABLE public.import_log (
     rows_skipped integer,
     sale_no character varying(20),
     week_date date,
-    imported_at timestamp without time zone DEFAULT now()
+    imported_at timestamp without time zone DEFAULT now(),
+    file_label text DEFAULT ''::text,
+    import_group text DEFAULT ''::text,
+    batch_name text DEFAULT ''::text,
+    sold_list_sale_no text
 );
 
 
@@ -159,7 +205,9 @@ CREATE TABLE public.markings (
     created_at timestamp without time zone DEFAULT now(),
     invoice text,
     origin text,
-    is_ai_suggestion boolean DEFAULT false
+    is_ai_suggestion boolean DEFAULT false,
+    catalogue_id uuid,
+    batch_name text DEFAULT ''::text
 );
 
 
@@ -181,10 +229,14 @@ CREATE TABLE public.parties (
     nwt_from numeric(10,2) DEFAULT 0,
     nwt_to numeric(10,2) DEFAULT 0,
     skip_blank_lsp boolean DEFAULT true,
-    skip_dup_broker_garden_grade boolean DEFAULT false,
+    skip_dup_broker_garden_grade boolean DEFAULT true,
     active boolean DEFAULT true,
     grade_bags jsonb DEFAULT '{}'::jsonb,
-    grade_nwt jsonb DEFAULT '{}'::jsonb
+    grade_nwt jsonb DEFAULT '{}'::jsonb,
+    party_type character varying(1) DEFAULT 'B'::character varying,
+    grade_garden_mapping jsonb DEFAULT '{}'::jsonb,
+    one_lot_per_grade_garden boolean DEFAULT false,
+    CONSTRAINT parties_party_type_check CHECK (((party_type)::text = ANY ((ARRAY['A'::character varying, 'B'::character varying, 'C'::character varying])::text[])))
 );
 
 
@@ -198,6 +250,61 @@ CREATE TABLE public.party_garden_mapping (
     garden character varying(120) NOT NULL,
     created_at timestamp without time zone DEFAULT now()
 );
+
+
+--
+-- Name: users; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.users (
+    id integer NOT NULL,
+    name text NOT NULL,
+    email text NOT NULL,
+    password text NOT NULL,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: users_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.users_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: users_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.users_id_seq OWNED BY public.users.id;
+
+
+--
+-- Name: ai_markings id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ai_markings ALTER COLUMN id SET DEFAULT nextval('public.ai_markings_id_seq'::regclass);
+
+
+--
+-- Name: users id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_id_seq'::regclass);
+
+
+--
+-- Name: ai_markings ai_markings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ai_markings
+    ADD CONSTRAINT ai_markings_pkey PRIMARY KEY (id);
 
 
 --
@@ -281,10 +388,61 @@ ALTER TABLE ONLY public.sold_list
 
 
 --
+-- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_email_key UNIQUE (email);
+
+
+--
+-- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: catalogue_sale_batch_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX catalogue_sale_batch_unique ON public.catalogue USING btree (sale_no, garden, grade, mark, invoice_no, batch_name);
+
+
+--
+-- Name: idx_catalogue_batch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_catalogue_batch ON public.catalogue USING btree (sale_no, batch_name);
+
+
+--
 -- Name: idx_catalogue_garden_grade; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_catalogue_garden_grade ON public.catalogue USING btree (garden, grade);
+
+
+--
+-- Name: idx_catalogue_invoice; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_catalogue_invoice ON public.catalogue USING btree (invoice_no);
+
+
+--
+-- Name: idx_catalogue_mark_grade; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_catalogue_mark_grade ON public.catalogue USING btree (mark, grade);
+
+
+--
+-- Name: idx_catalogue_sale_grade_garden; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_catalogue_sale_grade_garden ON public.catalogue USING btree (sale_no, grade, garden);
 
 
 --
@@ -295,10 +453,31 @@ CREATE INDEX idx_catalogue_sale_no ON public.catalogue USING btree (sale_no);
 
 
 --
+-- Name: idx_import_log_sale_no; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_import_log_sale_no ON public.import_log USING btree (sale_no);
+
+
+--
 -- Name: idx_markings_ai; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_markings_ai ON public.markings USING btree (is_ai_suggestion) WHERE (is_ai_suggestion = true);
+
+
+--
+-- Name: idx_markings_batch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_markings_batch ON public.markings USING btree (sale_no, batch_name);
+
+
+--
+-- Name: idx_markings_is_ai; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_markings_is_ai ON public.markings USING btree (is_ai_suggestion) WHERE (is_ai_suggestion = true);
 
 
 --
@@ -316,6 +495,20 @@ CREATE INDEX idx_markings_sale_no ON public.markings USING btree (sale_no);
 
 
 --
+-- Name: idx_markings_sale_party_invoice; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_markings_sale_party_invoice ON public.markings USING btree (sale_no, party_id, invoice);
+
+
+--
+-- Name: idx_parties_type; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_parties_type ON public.parties USING btree (party_type) WHERE (active = true);
+
+
+--
 -- Name: idx_pgm_party; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -323,10 +516,45 @@ CREATE INDEX idx_pgm_party ON public.party_garden_mapping USING btree (party_id)
 
 
 --
+-- Name: idx_pgm_party_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_pgm_party_id ON public.party_garden_mapping USING btree (party_id);
+
+
+--
+-- Name: idx_sold_list_batch; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_sold_list_batch ON public.sold_list USING btree (sale_no, batch_name);
+
+
+--
+-- Name: idx_sold_list_join_key; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_sold_list_join_key ON public.sold_list USING btree (sale_no, garden, grade, mark);
+
+
+--
+-- Name: idx_sold_list_mark_grade; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_sold_list_mark_grade ON public.sold_list USING btree (mark, grade);
+
+
+--
 -- Name: idx_sold_list_sale_no; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX idx_sold_list_sale_no ON public.sold_list USING btree (sale_no);
+
+
+--
+-- Name: sold_list_sale_batch_unique; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX sold_list_sale_batch_unique ON public.sold_list USING btree (sale_no, garden, grade, mark, invoice_no, batch_name);
 
 
 --
@@ -349,5 +577,5 @@ ALTER TABLE ONLY public.party_garden_mapping
 -- PostgreSQL database dump complete
 --
 
-\unrestrict Je8Wq8yhMjOLIjaBCDUchedAzZ4lc92TbEUdbkC4OdG4kpCIcgDe02uhvccktKX
+\unrestrict VHn8xLh4d0ZgHNcXXpW2g8PEzP5mN7eRAR0v1x9lfgrFnVLeXa0IKihL9VGnP6N
 
