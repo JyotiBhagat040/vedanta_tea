@@ -200,43 +200,44 @@ export default function LabelsPage() {
 body{font-family:Arial,Helvetica,sans-serif;color:#000;}
 @page{
   size:210mm 297mm;
-  margin-top:9.5mm;
-  margin-bottom:3mm;
-  margin-left:11mm;
-  margin-right:5mm;
+  margin-top:5mm;
+  margin-bottom:4mm;
+  margin-left:4.5mm;
+  margin-right:4.5mm;
 }
 .grid{
   display:grid;
   grid-template-columns:repeat(4,48mm);
-  justify-content:center;
-  grid-auto-rows:23mm;
-  gap:0.3mm;
-  width:192mm;
+  column-gap:3mm;          /* horizontal pitch 51mm = 48mm width + 3mm gap */
+  row-gap:0;               /* vertical pitch 24mm = label height 24mm, no gap */
+  grid-auto-rows:23.9mm;
+  justify-content:start;
+  width:201mm;             /* 4×48 + 3×3 = 201mm */
 }
 .lbl{
   width:48mm;
-  height:23mm;
+  height:23.9mm;
   border:none;
   overflow:hidden;
   display:flex;
   flex-direction:column;
   justify-content:center;
   gap:0.3mm;
-  padding:1.5mm 2mm 1.5mm 4mm;
+  padding:1.5mm 2mm 1.5mm 2.5mm;
   page-break-inside:avoid;
   break-inside:avoid;
   line-height:1.2;
 }
-.r1{font-size:6pt;display:flex;align-items:center;gap:0.8mm;white-space:nowrap;overflow:hidden;}
+.r1{font-size:6pt;font-weight:900;display:flex;align-items:center;gap:0.8mm;white-space:nowrap;overflow:hidden;}
 .r1 b{font-weight:900;font-size:8pt;}
-.r2{font-size:6pt;display:flex;align-items:center;gap:1mm;white-space:nowrap;overflow:hidden;}
-.r3{font-size:6pt;display:flex;align-items:center;gap:1mm;white-space:nowrap;overflow:hidden;}
-.d{color:#555;font-size:6pt;}
+.r2{font-size:6pt;font-weight:900;display:flex;align-items:center;gap:1mm;white-space:nowrap;overflow:hidden;}
+.r3{font-size:6pt;font-weight:900;display:flex;align-items:center;gap:1mm;white-space:nowrap;overflow:hidden;}
+.d{color:#555;font-size:6pt;font-weight:900;}
 .inv{font-size:6pt;font-weight:900;color:#000;}
 .grd{background:none;color:#000;border:none;padding:0;font-size:7pt;font-weight:900;}
 .gname{font-size:6.5pt;font-weight:900;color:#000;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.orig{font-size:5.5pt;color:#000;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2;}
-.hist{font-size:6.5pt;font-weight:700;color:#000;background:none;border:none;padding:0;white-space:nowrap;overflow:hidden;line-height:1.2;}
+.orig{font-size:5.5pt;color:#000;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2;}
+.hist{font-size:7pt;font-weight:900;color:#000;background:none;border:none;padding:0;white-space:nowrap;overflow:hidden;line-height:1.2;}
 @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.lbl{page-break-inside:avoid;}}
 </style></head><body>
 <div class="grid">${labelsHtml}</div>
@@ -291,7 +292,7 @@ body{font-family:Arial,Helvetica,sans-serif;color:#000;}
           {m.origin || ''}
         </div>
         {histText && (
-          <div style={{ fontSize: 8, fontWeight: 700, color: '#374151', background: 'none', paddingTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', ...s }}>
+          <div style={{ fontSize: 9, fontWeight: 900, color: '#000', background: 'none', paddingTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', ...s }}>
             {histText}
           </div>
         )}
