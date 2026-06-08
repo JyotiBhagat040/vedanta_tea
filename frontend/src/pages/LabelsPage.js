@@ -23,6 +23,13 @@ export default function LabelsPage() {
   const [lotFrom, setLotFrom] = useState('');
   const [lotTo, setLotTo] = useState('');
 
+  // --- File-upload labels (print directly from an uploaded Excel/CSV) ---
+  const [fileRows,  setFileRows]  = useState([]);   // parsed rows -> label shape
+  const [fileName,  setFileName]  = useState('');
+  const [fileError, setFileError] = useState('');
+  const [fileBusy,  setFileBusy]  = useState(false);
+  const fileInputRef = useRef(null);
+
   useEffect(() => {
     api.get('/import/sale-numbers')
       .then(r => {
@@ -247,6 +254,158 @@ body{font-family:Arial,Helvetica,sans-serif;color:#000;}
     setTimeout(() => { win.print(); win.close(); }, 500);
   };
 
+  // --- Lazy-load SheetJS from CDN (parses both .xlsx and .csv) ---
+  const loadXLSX = () => new Promise((resolve, reject) => {
+    if (window.XLSX) return resolve(window.XLSX);
+    const s = document.createElement('script');
+    s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+    s.onload  = () => window.XLSX ? resolve(window.XLSX) : reject(new Error('XLSX failed to load'));
+    s.onerror = () => reject(new Error('Could not load the spreadsheet parser (check internet).'));
+    document.head.appendChild(s);
+  });
+
+  // Header aliases -> internal label field. Matching is case-insensitive,
+  // ignores spaces/underscores/hyphens.
+  const norm = h => String(h || '').toLowerCase().replace(/[\s_\-.]/g, '');
+  const FIELD_ALIASES = {
+    party_code: ['partycode', 'party', 'code'],
+    sale_no:    ['saleno', 'sale', 's'],
+    lot_no:     ['lotno', 'lot'],
+    invoice:    ['invoiceno', 'invoice', 'inv'],
+    bags:       ['bags', 'bag'],
+    net_wt:     ['nwt', 'netwt', 'netweight', 'weight', 'wt'],
+    gp_date:    ['gpdate', 'date', 'gpdt'],
+    grade:      ['grade', 'grd'],
+    garden:     ['garden', 'mark', 'gardenname'],
+    origin:     ['origin'],
+    lsp:        ['lsp', 'price', 'lastsaleprice', 'historicalprice'],
+  };
+
+  const mapRow = (rawRow) => {
+    // Build a normalized-header -> value map for this row
+    const lookup = {};
+    Object.keys(rawRow).forEach(k => { lookup[norm(k)] = rawRow[k]; });
+    const out = {};
+    Object.entries(FIELD_ALIASES).forEach(([field, aliases]) => {
+      for (const a of aliases) {
+        if (lookup[a] !== undefined && lookup[a] !== null && String(lookup[a]).trim() !== '') {
+          out[field] = String(lookup[a]).trim();
+          break;
+        }
+      }
+    });
+    return out;
+  };
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setFileError(''); setFileBusy(true); setFileName(file.name);
+    try {
+      const XLSX = await loadXLSX();
+      const buf  = await file.arrayBuffer();
+      const wb   = XLSX.read(buf, { type: 'array' });
+      const ws   = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+      if (!json.length) throw new Error('The file has no data rows.');
+      const mapped = json
+        .map(mapRow)
+        .filter(r => Object.keys(r).length > 0); // keep any row that has at least one usable value
+      if (!mapped.length) {
+        throw new Error('No usable data found. Expected headers like PartyCode, Sale, Lot, Invoice, Bags, NWt, Date, Grade, Garden, Origin, LSP.');
+      }
+      setFileRows(mapped);
+    } catch (e) {
+      setFileRows([]);
+      setFileError(e.message || 'Could not read the file.');
+    } finally {
+      setFileBusy(false);
+    }
+  };
+
+  const clearFile = () => {
+    setFileRows([]); setFileName(''); setFileError('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // Print labels built purely from the uploaded file (LSP printed verbatim).
+  const printFileLabels = () => {
+    const win = window.open('', '_blank');
+    const fmt = lot => {
+      if (!lot) return '';
+      const m = lot.match(/^([A-Za-z]+)[-]?0*(\d+)$/);
+      return m ? `${m[1]}-${parseInt(m[2], 10)}` : lot;
+    };
+
+    const labelsHtml = fileRows.map(m => {
+      const histLine = m.lsp ? `<div class="hist">${m.lsp}</div>` : '';
+      return `<div class="lbl">
+  <div class="r1">
+    <b>${m.party_code || ''}</b>${m.sale_no ? `<span class="d">|</span>S${m.sale_no}` : ''}${m.lot_no ? `<span class="d">|</span><b>${fmt(m.lot_no)}</b>` : ''}
+  </div>
+  <div class="r2">
+    <b class="inv">${m.invoice || ''}</b><span class="d">|</span><span>${m.bags || '?'}&#215;${m.net_wt || '?'}</span>${m.gp_date ? `<span class="d">|</span><span>${m.gp_date}</span>` : ''}
+  </div>
+  <div class="r3">
+    <b class="grd">${m.grade || ''}</b>${m.garden ? `<span class="d">|</span><span class="gname">${m.garden}</span>` : ''}
+  </div>
+  <div class="orig">${m.origin || ''}</div>
+  ${histLine}
+</div>`;
+    }).join('');
+
+    win.document.write(`<!DOCTYPE html>
+<html><head><title>Labels — ${fileName}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:Arial,Helvetica,sans-serif;color:#000;}
+@page{
+  size:210mm 297mm;
+  margin-top:5mm;
+  margin-bottom:4mm;
+  margin-left:4.5mm;
+  margin-right:4.5mm;
+}
+.grid{
+  display:grid;
+  grid-template-columns:repeat(4,48mm);
+  column-gap:3mm;
+  row-gap:0;
+  grid-auto-rows:23.9mm;
+  justify-content:start;
+  width:201mm;
+}
+.lbl{
+  width:48mm;
+  height:23.9mm;
+  border:none;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:0.3mm;
+  padding:1.5mm 2mm 1.5mm 2.5mm;
+  page-break-inside:avoid;
+  break-inside:avoid;
+  line-height:1.2;
+}
+.r1{font-size:6pt;font-weight:900;display:flex;align-items:center;gap:0.8mm;white-space:nowrap;overflow:hidden;}
+.r1 b{font-weight:900;font-size:8pt;}
+.r2{font-size:6pt;font-weight:900;display:flex;align-items:center;gap:1mm;white-space:nowrap;overflow:hidden;}
+.r3{font-size:6pt;font-weight:900;display:flex;align-items:center;gap:1mm;white-space:nowrap;overflow:hidden;}
+.d{color:#555;font-size:6pt;font-weight:900;}
+.inv{font-size:6pt;font-weight:900;color:#000;}
+.grd{background:none;color:#000;border:none;padding:0;font-size:7pt;font-weight:900;}
+.gname{font-size:6.5pt;font-weight:900;color:#000;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.orig{font-size:5.5pt;color:#000;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.2;}
+.hist{font-size:7pt;font-weight:900;color:#000;background:none;border:none;padding:0;white-space:nowrap;overflow:hidden;line-height:1.2;}
+@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}.lbl{page-break-inside:avoid;}}
+</style></head><body>
+<div class="grid">${labelsHtml}</div>
+</body></html>`);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); win.close(); }, 500);
+  };
 
   const previewCard = (m, i) => {
     const histData = histPrices[histKey(m.garden, m.grade)];
@@ -294,6 +453,39 @@ body{font-family:Arial,Helvetica,sans-serif;color:#000;}
         {histText && (
           <div style={{ fontSize: 9, fontWeight: 900, color: '#000', background: 'none', paddingTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', ...s }}>
             {histText}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Preview card for uploaded-file rows (LSP printed verbatim from file)
+  const fileCard = (m, i) => {
+    const s = { flexShrink: 0 };
+    return (
+      <div key={i} style={{ width: 192, height: m.lsp ? 100 : 88, border: '1px dashed #ccc', borderTop: 'none', borderLeft: 'none', padding: '4px 10px 4px 8px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', background: '#fff', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, borderBottom: '1px solid #e5e7eb', paddingBottom: 3, ...s }}>
+          <span style={{ fontWeight: 900, fontSize: 11 }}>{m.party_code || ''}</span>
+          {m.sale_no && <><span style={{ color: '#ccc', fontSize: 8 }}>|</span><span style={{ fontSize: 9, color: '#555' }}>S{m.sale_no}</span></>}
+          {m.lot_no && <><span style={{ color: '#ccc', fontSize: 8 }}>|</span><span style={{ fontWeight: 900, fontSize: 11, color: '#1a3c5e' }}>{fmtLot(m.lot_no)}</span></>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, ...s }}>
+          <span style={{ fontWeight: 900, fontSize: 10, color: '#222' }}>{m.invoice || ''}</span>
+          <span style={{ color: '#ccc' }}>|</span>
+          <span style={{ fontWeight: 600, color: '#374151' }}>{m.bags || '?'}&times;{m.net_wt || '?'}</span>
+          {m.gp_date && <><span style={{ color: '#ccc' }}>|</span><span style={{ color: '#555' }}>{m.gp_date}</span></>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, ...s }}>
+          <span style={{ fontWeight: 900, fontSize: 11, color: '#000' }}>{m.grade || ''}</span>
+          {m.garden && <><span style={{ color: '#ccc', fontSize: 8 }}>|</span>
+          <span style={{ fontWeight: 900, fontSize: 11, color: '#000', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.garden}</span></>}
+        </div>
+        <div style={{ fontSize: 8, color: '#555', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600, ...s }}>
+          {m.origin || ''}
+        </div>
+        {m.lsp && (
+          <div style={{ fontSize: 9, fontWeight: 900, color: '#000', background: 'none', paddingTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', ...s }}>
+            {m.lsp}
           </div>
         )}
       </div>
@@ -553,7 +745,66 @@ body{font-family:Arial,Helvetica,sans-serif;color:#000;}
         )}
       </Card>
 
-      {loading && <Card style={{ padding: 30, textAlign: 'center', color: '#888' }}>Loading...</Card>}
+      {/* Print labels directly from an uploaded Excel/CSV file */}
+      <Card style={{ marginBottom: 14, padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: fileRows.length || fileError ? 12 : 0 }}>
+          <div style={{ flex: '1 1 auto', minWidth: 220 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: '#1a3c5e' }}>Print from file</div>
+            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
+              Upload an Excel (.xlsx) or CSV with columns: PartyCode, Sale, Lot, Invoice, Bags, NWt, Date, Grade, Garden, Origin, LSP. Same 48×24mm layout.
+            </div>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            onChange={e => handleFile(e.target.files && e.target.files[0])}
+            style={{ display: 'none' }}
+          />
+          <button onClick={() => fileInputRef.current && fileInputRef.current.click()}
+            disabled={fileBusy}
+            style={{ padding: '8px 18px', background: '#fff', color: '#1a3c5e', border: '1.5px solid #1a3c5e', borderRadius: 6, cursor: fileBusy ? 'wait' : 'pointer', fontWeight: 700, fontSize: 13 }}>
+            {fileBusy ? 'Reading…' : 'Choose file'}
+          </button>
+          {(fileRows.length > 0 || fileName) && (
+            <button onClick={clearFile}
+              style={{ fontSize: 11, color: '#c0392b', background: 'none', border: '1px solid #fecaca', borderRadius: 4, padding: '6px 12px', cursor: 'pointer' }}>
+              Clear
+            </button>
+          )}
+        </div>
+
+        {fileError && (
+          <div style={{ padding: '8px 12px', background: '#fee2e2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 12, color: '#991b1b', fontWeight: 500 }}>
+            {fileError}
+          </div>
+        )}
+
+        {fileRows.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: '#374151', fontWeight: 600 }}>
+              {fileName} — {fileRows.length} label{fileRows.length > 1 ? 's' : ''}
+            </span>
+            <button onClick={printFileLabels}
+              style={{ padding: '8px 22px', background: '#1a3c5e', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
+              Print {fileRows.length} Labels ({Math.ceil(fileRows.length / 48)} page{fileRows.length > 48 ? 's' : ''})
+            </button>
+            <span style={{ fontSize: 11, color: '#6b7280' }}>4 cols x 12 rows — 48×24mm — 48 per A4</span>
+          </div>
+        )}
+
+        {fileRows.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 8, fontWeight: 600 }}>
+              Preview — {fileRows.length} labels
+              <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 8, color: '#9ca3af' }}>(screen preview enlarged for readability)</span>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {fileRows.map((m, i) => fileCard(m, i))}
+            </div>
+          </div>
+        )}
+      </Card>
       {!loading && !filtered.length && selSale && (
         <Card style={{ padding: 30, textAlign: 'center', color: '#aaa' }}>No markings for Sale #{selSale}{selBatch && ` / "${selBatch}"`}. Create markings first.</Card>
       )}
