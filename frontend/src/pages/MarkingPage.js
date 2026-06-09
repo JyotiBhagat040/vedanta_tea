@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Card, Button, Alert, api } from '../App';
 
-const MAX_SLOTS = 5;
-const AUTO_SLOTS = 3; // P1-P3 for auto-mark; P4-P5 reserved for manual
+const MAX_SLOTS = 10;
+const AUTO_SLOTS = 8; // P1-P8 for auto-mark; P9-P10 reserved for manual
 
 const ColFilter = ({ label, options, selected, onChange }) => {
   const [open, setOpen] = useState(false);
@@ -160,12 +160,12 @@ const SlotCell = React.memo(({ catalogueId, slotIdx, value, onChange, allParties
   );
   return (
     <div data-slot={`${catalogueId}-${slotIdx}`} onClick={startEdit}
-      style={{ width: 46, height: 22, padding: '1px 4px', borderRadius: 99, cursor: 'pointer',
+      style={{ width: 38, height: 20, padding: '1px 2px', borderRadius: 99, cursor: 'pointer',
         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
         background: value ? (slotIdx >= AUTO_SLOTS ? '#7c3aed' : '#1a3c5e') : 'transparent',
         border: value ? 'none' : (slotIdx >= AUTO_SLOTS ? '1.5px dashed #c4b5fd' : '1.5px dashed #d1d5db') }}>
-      {value ? <span style={{ color: '#fff', fontSize: 10, fontWeight: 700 }}>{value.party_code}</span>
-             : <span style={{ color: slotIdx >= AUTO_SLOTS ? '#c4b5fd' : '#d1d5db', fontSize: 9 }}>—</span>}
+      {value ? <span style={{ color: '#fff', fontSize: 9, fontWeight: 700 }}>{value.party_code}</span>
+             : <span style={{ color: slotIdx >= AUTO_SLOTS ? '#c4b5fd' : '#d1d5db', fontSize: 8 }}>—</span>}
     </div>
   );
 });
@@ -188,7 +188,7 @@ const LotRow = React.memo(({ row, rowIdx, slots, dupAlert, onSlotChange, allPart
       <tr style={{ borderBottom: dupAlert ? 'none' : '1px solid #f0f4f8', background: hasSlot ? (rowIdx%2===0?'#f0fdf4':'#e8faf0') : (rowIdx%2===0?'#fff':'#fafbfc') }}>
         <td style={tdStyle({ textAlign: 'center', color: '#9ca3af', fontWeight: 500 })}>{row.sale_no}</td>
         {slots.map((slot, si) => (
-          <td key={si} style={{ padding: '3px 2px', textAlign: 'center' }}>
+          <td key={si} style={{ padding: '3px 1px', textAlign: 'center' }}>
             <SlotCell catalogueId={row.catalogue_id} slotIdx={si} value={slot} onChange={v => onSlotChange(row.catalogue_id, si, v)} allParties={allParties} visibleLots={visibleLots} rowIdx={rowIdx} />
           </td>
         ))}
@@ -214,7 +214,7 @@ const LotRow = React.memo(({ row, rowIdx, slots, dupAlert, onSlotChange, allPart
         </td>
       </tr>
       {dupAlert && (
-        <tr><td colSpan={16} style={{ padding: '3px 12px', background: '#fffbeb', borderBottom: '1px solid #f0f4f8', fontSize: 11, color: '#92400e', fontWeight: 600 }}>
+        <tr><td colSpan={21} style={{ padding: '3px 12px', background: '#fffbeb', borderBottom: '1px solid #f0f4f8', fontSize: 11, color: '#92400e', fontWeight: 600 }}>
           {dupAlert}
           <button onClick={() => onDismissDup(row.catalogue_id)} style={{ marginLeft: 8, border: 'none', background: 'none', cursor: 'pointer', fontSize: 10, color: '#888' }}>x</button>
         </td></tr>
@@ -305,7 +305,7 @@ export default function MarkingPage() {
   // ── CORE MARK LOTS LOGIC ───────────────────────────────────────────────────
   // Correct approach: iterate over LOTS (in broker+lot_no order from backend).
   // For each lot, take ALL eligible parties sorted A→B→C→alphabetical.
-  // Fill P1, P2, P3 in that order. If P1-P3 already full, lot is skipped.
+  // Fill P1..P8 in order. If P1-P8 already full, lot is skipped.
   // A party can appear on MULTIPLE lots — that is correct and expected.
   // ── Shared helper: fetch preview data for selected parties ─────────────────
   const fetchPreview = async () => {
@@ -319,7 +319,7 @@ export default function MarkingPage() {
 
   // ── Mark F1: Grade Settings (Garden+Grade dedup) ─────────────────────────
   // Applies Filter 1 rules: max_lots cap + BGG dedup per party.
-  // Fills P1-P3 only. Does NOT touch Filter 2 lots.
+  // Fills P1-P8 only. Does NOT touch Filter 2 lots.
   const markF1 = async () => {
     if (!selParties.length || !saleNo) { setAlert({ msg: 'Select parties first', type: 'error' }); return; }
     setMarking('f1'); setAlert(null);
@@ -447,7 +447,7 @@ export default function MarkingPage() {
   };
 
   // ── Mark F2: Grade-Garden Mapping ────────────────────────────────────────
-  // Applies Filter 2 rules only: fills remaining free P1-P3 slots.
+  // Applies Filter 2 rules only: fills remaining free P1-P8 slots.
   // No max_lots cap, no BGG dedup.
   // oneLotPerGG checked → 1 slot per grade+garden combo.
   // oneLotPerGG unchecked → 1 slot on every lot matching grade+garden.
@@ -879,9 +879,9 @@ export default function MarkingPage() {
   const clearFilters = () => { setFilterGrades([]); setFilterGardens([]); setFilterBrokers([]); setFilterOrigins([]); setSearchLot(''); setShowMarked(false); setFilterGpDates([]); setVisibleCount(200); };
 
   return (
-    <div onKeyDown={handlePageKeyDown} tabIndex={-1} style={{ outline: 'none' }}>
+    <div onKeyDown={handlePageKeyDown} tabIndex={-1} style={{ outline: 'none', width: '100%', maxWidth: '100%' }}>
       <h2 style={{ marginBottom: 2, color: '#1a3c5e', fontSize: 20, fontWeight: 800 }}>Create Markings</h2>
-      <p style={{ color: '#9ca3af', fontSize: 12, marginBottom: 14 }}>Select sale, pick parties. <b>Mark F1</b> = Grade Settings (Garden+Grade dedup, max_lots cap). <b>Mark F2</b> = Grade-Garden Mapping (fills remaining slots). P4-P5 purple = manual. Ctrl+S to save.</p>
+      <p style={{ color: '#9ca3af', fontSize: 12, marginBottom: 14 }}>Select sale, pick parties. <b>Mark F1</b> = Grade Settings (Garden+Grade dedup, max_lots cap). <b>Mark F2</b> = Grade-Garden Mapping (fills remaining slots). P9-P10 purple = manual. Ctrl+S to save.</p>
       {alert && <Alert msg={alert.msg} type={alert.type} />}
 
       <Card style={{ marginBottom: 14, padding: 14 }}>
@@ -974,7 +974,7 @@ export default function MarkingPage() {
                   disabled={!!marking}
                   variant="success"
                   style={{ padding: '6px 16px', fontSize: 12 }}
-                  title="Mark using Grade-Garden Mapping (Filter 2): fills remaining P1-P3 slots"
+                  title="Mark using Grade-Garden Mapping (Filter 2): fills remaining P1-P8 slots"
                 >
                   {marking === 'f2' ? 'Marking F2...' : '▶ Mark F2'}
                 </Button>
@@ -992,15 +992,15 @@ export default function MarkingPage() {
               All Lots - Sale #{saleNo}{batchName && <span style={{ fontSize: 11, fontWeight: 600, marginLeft: 6, color: '#93c5fd' }}>({batchName})</span>}
               {hasFilters && <span style={{ fontSize: 10, fontWeight: 400, marginLeft: 8, opacity: 0.8 }}>({filteredLots.length} of {allLots.length})</span>}
             </div>
-            <div style={{ fontSize: 10, opacity: 0.7 }}>Click slot | →/Tab=right | ←=left | ↓/Enter=down | ↑=up | Backspace=clear | P4-P5 purple = manual</div>
+            <div style={{ fontSize: 10, opacity: 0.7 }}>Click slot | →/Tab=right | ←=left | ↓/Enter=down | ↑=up | Backspace=clear | P9-P10 purple = manual</div>
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ background: '#234d78', color: '#fff' }}>
                   <th style={{ padding: '7px 6px', textAlign: 'center', fontSize: 11, minWidth: 50 }}>Sale</th>
-                  {[1,2,3].map(n => <th key={n} style={{ padding: '7px 4px', textAlign: 'center', background: '#1a3c5e', width: 54, fontSize: 11 }}>P{n}</th>)}
-                  {[4,5].map(n => <th key={n} style={{ padding: '7px 4px', textAlign: 'center', background: '#4c1d95', width: 54, fontSize: 11 }}>P{n}</th>)}
+                  {[1,2,3,4,5,6,7,8].map(n => <th key={n} style={{ padding: '7px 2px', textAlign: 'center', background: '#1a3c5e', width: 42, fontSize: 11 }}>P{n}</th>)}
+                  {[9,10].map(n => <th key={n} style={{ padding: '7px 2px', textAlign: 'center', background: '#4c1d95', width: 42, fontSize: 11 }}>P{n}</th>)}
                   <th style={{ padding: '7px 6px', textAlign: 'left', fontSize: 11 }}><ColFilter label="Bro" options={brokersOpts} selected={filterBrokers} onChange={setFilterBrokers} /></th>
                   <th style={{ padding: '7px 6px', textAlign: 'left', fontSize: 11 }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -1029,7 +1029,7 @@ export default function MarkingPage() {
               </thead>
               <tbody>
                 {visibleLots.length === 0
-                  ? <tr><td colSpan={16} style={{ padding: 20, textAlign: 'center', color: '#aaa' }}>No lots match filters. <button onClick={clearFilters} style={{ color: '#1a3c5e', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Clear</button></td></tr>
+                  ? <tr><td colSpan={21} style={{ padding: 20, textAlign: 'center', color: '#aaa' }}>No lots match filters. <button onClick={clearFilters} style={{ color: '#1a3c5e', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Clear</button></td></tr>
                   : visibleLots.map((row, rowIdx) => {
                     const slots = lotSlots[row.catalogue_id] || Array(MAX_SLOTS).fill(null);
                     return (
