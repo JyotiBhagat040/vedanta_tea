@@ -81,6 +81,16 @@ export default function MappingPage() {
       });
       return updated;
     });
+
+    // NEW: copy broker lot limits from fromGrade to all grades below
+    const fromBrokerLots = gradeBrokerLots[fromGrade] || {};
+    setGradeBrokerLots(prev => {
+      const updated = { ...prev };
+      gradesToUpdate.forEach(grade => {
+        updated[grade] = { ...fromBrokerLots };
+      });
+      return updated;
+    });
     
     setAlert({ msg: `✅ Settings copied from ${fromGrade} to ${gradesToUpdate.length} grades below`, type: 'success' });
     setTimeout(() => setAlert(null), 2000);
